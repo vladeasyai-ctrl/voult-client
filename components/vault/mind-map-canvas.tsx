@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import {
   FileText,
   Folder,
+  Map,
   Minus,
   MoreHorizontal,
   Pencil,
@@ -26,6 +27,7 @@ import type { DropTarget, TreeNode } from '@/lib/types';
 import { useVaultMutations } from '@/hooks/use-vault-data';
 import { useVaultStore } from '@/stores/vault-store';
 import { PresetPicker } from '@/components/vault/preset-picker';
+import { RootFolderMap } from '@/components/vault/root-folder-map';
 
 interface MindMapCanvasProps {
   onUploadFiles: (files: File[], target?: DropTarget) => Promise<void>;
@@ -44,6 +46,8 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
   const selectedNodeId = useVaultStore((s) => s.selectedNodeId);
   const renamingNodeId = useVaultStore((s) => s.renamingNodeId);
   const setRenamingNodeId = useVaultStore((s) => s.setRenamingNodeId);
+  const activeRootId = useVaultStore((s) => s.activeRootId);
+  const setActiveRootId = useVaultStore((s) => s.setActiveRootId);
 
   const { createFolder, renameNode, deleteFolder, deleteDocument, invalidate } =
     useVaultMutations();
@@ -53,13 +57,43 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
   const panStart = useRef({ x: 0, y: 0, canvasX: 0, canvasY: 0 });
   const [contextMenu, setContextMenu] = useState<string | null>(null);
   const [showPresetPicker, setShowPresetPicker] = useState(false);
+  const [showRootMap, setShowRootMap] = useState(false);
+
+  const rootFolders = useMemo(
+    () => tree.filter((n) => n.type === 'FOLDER'),
+    [tree],
+  );
+
+  const activeRoot = useMemo(() => {
+    if (rootFolders.length === 0) return null;
+    if (activeRootId) {
+      const found = rootFolders.find((r) => r.id === activeRootId);
+      if (found) return found;
+    }
+    return rootFolders[0];
+  }, [rootFolders, activeRootId]);
+
+  const displayTree = useMemo(
+    () => (activeRoot ? [activeRoot] : []),
+    [activeRoot],
+  );
+
+  useEffect(() => {
+    if (rootFolders.length === 0) {
+      if (activeRootId) setActiveRootId(null);
+      return;
+    }
+    if (!activeRootId || !rootFolders.some((r) => r.id === activeRootId)) {
+      setActiveRootId(rootFolders[0].id);
+    }
+  }, [rootFolders, activeRootId, setActiveRootId]);
 
   const docByNode = useMemo(
     () => Object.fromEntries(documents.map((d) => [d.nodeId, d])),
     [documents],
   );
 
-  const flat = useMemo(() => flattenTree(tree), [tree]);
+  const flat = useMemo(() => flattenTree(displayTree), [displayTree]);
 
   useEffect(() => {
     if (!onboarded && tree.length === 0) {
@@ -71,18 +105,31 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
     return flat
       .filter((n) => n.type === 'FOLDER')
       .flatMap((n) =>
-        getSuggestions(n, resolvePresetId(n, tree, presetId)),
+        getSuggestions(n, resolvePresetId(n, displayTree, presetId)),
       );
-  }, [flat, presetId, tree]);
+  }, [flat, presetId, displayTree]);
 
   const layout = useMemo(
-    () => buildMindMapLayout(tree, allSuggestions),
-    [tree, allSuggestions],
+    () => buildMindMapLayout(displayTree, allSuggestions),
+    [displayTree, allSuggestions],
   );
 
+  const handleAddRoot = async () => {
+    const name = prompt('Название корневой ветки');
+    if (!name?.trim()) return;
+    const created = await createFolder.mutateAsync({
+      name: name.trim(),
+      parentId: null,
+    });
+    setActiveRootId(created.id);
+    setCanvas({ x: 0, y: 0, scale: 1 });
+    await invalidate();
+  };
+
   const handlePreset = async (preset: VaultPreset) => {
-    await createFolder.mutateAsync({ name: preset.rootName, parentId: null });
+    const created = await createFolder.mutateAsync({ name: preset.rootName, parentId: null });
     setPresetId(preset.id);
+    setActiveRootId(created.id);
     setOnboarded(true);
     setShowPresetPicker(false);
     await invalidate();
@@ -150,19 +197,34 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
         <PresetPicker onSelect={handlePreset} onSkip={handleSkipPreset} />
       )}
 
+      {showRootMap && (
+        <RootFolderMap
+          roots={rootFolders}
+          activeRootId={activeRoot?.id ?? null}
+          onSelect={(rootId) => {
+            setActiveRootId(rootId);
+            setCanvas({ x: 0, y: 0, scale: 1 });
+            selectNode(null);
+            setShowRootMap(false);
+          }}
+          onAddRoot={async () => {
+            setShowRootMap(false);
+            await handleAddRoot();
+          }}
+          onClose={() => setShowRootMap(false)}
+        />
+      )}
+
       <div className="relative flex h-full flex-col overflow-hidden bg-[var(--color-canvas)]">
         <CanvasToolbar
+          activeRootName={activeRoot?.name}
+          rootCount={rootFolders.length}
           scale={canvas.scale}
+          onOpenMap={() => setShowRootMap(true)}
           onZoomIn={() => setCanvas({ scale: Math.min(2, canvas.scale + 0.1) })}
           onZoomOut={() => setCanvas({ scale: Math.max(0.35, canvas.scale - 0.1) })}
           onReset={() => setCanvas({ x: 0, y: 0, scale: 1 })}
-          onAddRoot={async () => {
-            const name = prompt('Название корневой ветки');
-            if (name) {
-              await createFolder.mutateAsync({ name, parentId: null });
-              await invalidate();
-            }
-          }}
+          onAddRoot={handleAddRoot}
         />
 
         <div
@@ -226,6 +288,10 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
                   const doc = docByNode[node.id];
                   if (doc) await deleteDocument.mutateAsync(doc.id);
                   else if (node.type === 'FOLDER') await deleteFolder.mutateAsync(id);
+                  if (node.parentId === null) {
+                    const remaining = rootFolders.filter((r) => r.id !== id);
+                    setActiveRootId(remaining[0]?.id ?? null);
+                  }
                   selectNode(null);
                 }}
                 onContextMenu={() => setContextMenu(id)}
@@ -264,7 +330,7 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
               </button>
             ))}
 
-            {tree.length === 0 && onboarded && (
+            {displayTree.length === 0 && onboarded && (
               <div
                 className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-center"
                 style={{ width: 320 }}
@@ -302,13 +368,19 @@ function resolvePresetId(
 }
 
 function CanvasToolbar({
+  activeRootName,
+  rootCount,
   scale,
+  onOpenMap,
   onZoomIn,
   onZoomOut,
   onReset,
   onAddRoot,
 }: {
+  activeRootName?: string;
+  rootCount: number;
   scale: number;
+  onOpenMap: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onReset: () => void;
@@ -323,7 +395,26 @@ function CanvasToolbar({
       >
         <Plus size={14} /> Корневая ветка
       </button>
+      {activeRootName && (
+        <span className="hidden truncate text-sm text-[var(--color-muted)] sm:inline">
+          {activeRootName}
+        </span>
+      )}
       <div className="ml-auto flex items-center gap-1">
+        <button
+          type="button"
+          onClick={onOpenMap}
+          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]"
+          title="Карта корневых веток"
+        >
+          <Map size={14} />
+          <span className="hidden sm:inline">Карта</span>
+          {rootCount > 1 && (
+            <span className="rounded-full bg-[var(--color-accent-soft)] px-1.5 py-0.5 text-xs text-[var(--color-accent)]">
+              {rootCount}
+            </span>
+          )}
+        </button>
         <button type="button" onClick={onZoomOut} className="rounded-lg p-2 hover:bg-[var(--color-surface-2)]">
           <Minus size={14} />
         </button>
