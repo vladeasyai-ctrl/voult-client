@@ -15,17 +15,9 @@ export function useUpload() {
     async (file: File, target: DropTarget) => {
       const asset = await api.uploadAsset(file);
       const title = file.name.replace(/\.[^.]+$/, '') || file.name;
-
-      if (target.kind === 'document') {
-        await api.createVersion(target.documentId, asset.id);
-        selectNode(target.nodeId, target.documentId);
-      } else {
-        const parentId = target.kind === 'folder' ? target.nodeId : target.folderId;
-        const doc = await api.createDocument(title, parentId);
-        await api.createVersion(doc.id, asset.id);
-        selectNode(doc.nodeId, doc.id);
-      }
-
+      const parentId = target.kind === 'folder' ? target.nodeId : target.folderId;
+      const doc = await api.createDocument(title, parentId, asset.id);
+      selectNode(doc.nodeId, doc.id);
       await invalidate();
     },
     [invalidate, selectNode],

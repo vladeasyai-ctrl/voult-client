@@ -6,6 +6,7 @@ import {
   PanelRightOpen,
   RefreshCw,
   Search,
+  Sparkles,
   Sun,
 } from 'lucide-react';
 import { useEffect } from 'react';
@@ -17,9 +18,10 @@ import { useVaultStore } from '@/stores/vault-store';
 
 interface TopBarProps {
   onRefresh: () => void;
+  onOpenAiImport: () => void;
 }
 
-export function TopBar({ onRefresh }: TopBarProps) {
+export function TopBar({ onRefresh, onOpenAiImport }: TopBarProps) {
   const router = useRouter();
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggle);
@@ -47,6 +49,15 @@ export function TopBar({ onRefresh }: TopBarProps) {
         <kbd className="ml-auto rounded-md border border-[var(--color-border)] px-1.5 py-0.5 text-xs">
           Ctrl K
         </kbd>
+      </button>
+
+      <button
+        type="button"
+        onClick={onOpenAiImport}
+        className="inline-flex items-center gap-2 rounded-xl bg-[var(--color-accent)] px-3 py-2 text-sm text-white hover:opacity-90"
+      >
+        <Sparkles size={15} />
+        AI-импорт
       </button>
 
       <button

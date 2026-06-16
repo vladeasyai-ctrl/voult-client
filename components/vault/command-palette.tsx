@@ -110,7 +110,7 @@ export function CommandPalette() {
                   key={doc.id}
                   icon={Search}
                   label={doc.title}
-                  hint="Документ"
+                  hint={doc.aiSummary ?? 'Документ'}
                   onSelect={() => {
                     selectNode(doc.nodeId, doc.id);
                     setOpen(false);

@@ -112,16 +112,11 @@ export function VaultTree({ onUploadFiles }: VaultTreeProps) {
           onContextMenu={() => setContextMenu(node.id)}
           showMenu={contextMenu === node.id}
           onCloseMenu={() => setContextMenu(null)}
-          onDropFiles={(files) =>
-            onUploadFiles(
-              files,
-              isFolder
-                ? { kind: 'folder', nodeId: node.id }
-                : doc
-                  ? { kind: 'document', documentId: doc.id, nodeId: node.id }
-                  : undefined,
-            )
-          }
+          onDropFiles={(files) => {
+            if (isFolder) {
+              onUploadFiles(files, { kind: 'folder', nodeId: node.id });
+            }
+          }}
         />
         <AnimatePresence>
           {isFolder && isOpen && (

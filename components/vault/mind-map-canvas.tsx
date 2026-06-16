@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
+  Activity,
   FileText,
   Folder,
   Map,
@@ -22,12 +23,14 @@ import {
   SUGGESTION_HEIGHT,
 } from '@/lib/mind-map-layout';
 import { getSuggestions, findPresetByRootName, type VaultPreset } from '@/lib/presets';
+import { isHealthPresetRoot } from '@/lib/health-body-map';
 import { flattenTree } from '@/lib/tree-utils';
 import type { DropTarget, TreeNode } from '@/lib/types';
 import { useVaultMutations } from '@/hooks/use-vault-data';
 import { useVaultStore } from '@/stores/vault-store';
 import { PresetPicker } from '@/components/vault/preset-picker';
 import { RootFolderMap } from '@/components/vault/root-folder-map';
+import { HealthBodyCanvas } from '@/components/vault/health-body-canvas';
 
 interface MindMapCanvasProps {
   onUploadFiles: (files: File[], target?: DropTarget) => Promise<void>;
@@ -48,12 +51,16 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
   const setRenamingNodeId = useVaultStore((s) => s.setRenamingNodeId);
   const activeRootId = useVaultStore((s) => s.activeRootId);
   const setActiveRootId = useVaultStore((s) => s.setActiveRootId);
+  const healthViewMode = useVaultStore((s) => s.healthViewMode);
+  const setHealthViewMode = useVaultStore((s) => s.setHealthViewMode);
 
   const { createFolder, renameNode, deleteFolder, deleteDocument, invalidate } =
     useVaultMutations();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [isPanning, setIsPanning] = useState(false);
+  const [canvasDragOver, setCanvasDragOver] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const panStart = useRef({ x: 0, y: 0, canvasX: 0, canvasY: 0 });
   const [contextMenu, setContextMenu] = useState<string | null>(null);
   const [showPresetPicker, setShowPresetPicker] = useState(false);
@@ -77,6 +84,14 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
     () => (activeRoot ? [activeRoot] : []),
     [activeRoot],
   );
+
+  const isHealthRoot = useMemo(
+    () => Boolean(activeRoot && isHealthPresetRoot(activeRoot.name, presetId)),
+    [activeRoot, presetId],
+  );
+
+  const showHealthBody =
+    isHealthRoot && healthViewMode === 'body' && activeRoot != null;
 
   useEffect(() => {
     if (rootFolders.length === 0) {
@@ -130,6 +145,7 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
     const created = await createFolder.mutateAsync({ name: preset.rootName, parentId: null });
     setPresetId(preset.id);
     setActiveRootId(created.id);
+    if (preset.id === 'health') setHealthViewMode('body');
     setOnboarded(true);
     setShowPresetPicker(false);
     await invalidate();
@@ -164,7 +180,18 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
     [canvas.scale, setCanvas],
   );
 
+  const handleCreateHealthFolder = async (name: string) => {
+    if (!activeRoot) return;
+    const created = await createFolder.mutateAsync({
+      name,
+      parentId: activeRoot.id,
+    });
+    selectNode(created.id);
+    await invalidate();
+  };
+
   const onPointerDown = (e: React.PointerEvent) => {
+    if (showHealthBody) return;
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.closest('[data-mind-node]')) return;
@@ -190,6 +217,60 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
     setIsPanning(false);
     (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
   };
+
+  const resolveDropTarget = useCallback((): DropTarget | null => {
+    if (selectedNodeId) {
+      const selected = flat.find((n) => n.id === selectedNodeId);
+      if (selected?.type === 'FOLDER') {
+        return { kind: 'folder', nodeId: selected.id };
+      }
+    }
+    if (activeRoot) {
+      return { kind: 'folder', nodeId: activeRoot.id };
+    }
+    return { kind: 'content', folderId: null };
+  }, [activeRoot, flat, selectedNodeId]);
+
+  const dropTargetLabel = useMemo(() => {
+    const target = resolveDropTarget();
+    if (!target) return 'архив';
+    if (target.kind === 'folder') {
+      return flat.find((n) => n.id === target.nodeId)?.name ?? 'папку';
+    }
+    return 'корень';
+  }, [flat, resolveDropTarget]);
+
+  const handleCanvasDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setCanvasDragOver(true);
+  }, []);
+
+  const handleCanvasDragLeave = useCallback((e: React.DragEvent) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setCanvasDragOver(false);
+  }, []);
+
+  const handleCanvasDrop = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault();
+      setCanvasDragOver(false);
+      const files = Array.from(e.dataTransfer.files);
+      if (!files.length) return;
+
+      const target = resolveDropTarget();
+      if (!target) return;
+
+      setUploading(true);
+      try {
+        await onUploadFiles(files, target);
+      } finally {
+        setUploading(false);
+      }
+    },
+    [onUploadFiles, resolveDropTarget],
+  );
 
   return (
     <>
@@ -220,25 +301,48 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
           activeRootName={activeRoot?.name}
           rootCount={rootFolders.length}
           scale={canvas.scale}
+          isHealthRoot={isHealthRoot}
+          healthViewMode={healthViewMode}
+          onToggleHealthView={() =>
+            setHealthViewMode(healthViewMode === 'body' ? 'tree' : 'body')
+          }
           onOpenMap={() => setShowRootMap(true)}
           onZoomIn={() => setCanvas({ scale: Math.min(2, canvas.scale + 0.1) })}
           onZoomOut={() => setCanvas({ scale: Math.max(0.35, canvas.scale - 0.1) })}
           onReset={() => setCanvas({ x: 0, y: 0, scale: 1 })}
           onAddRoot={handleAddRoot}
+          hideZoom={showHealthBody}
         />
 
+        {showHealthBody ? (
+          <HealthBodyCanvas
+            root={activeRoot}
+            documents={documents}
+            onCreateFolder={handleCreateHealthFolder}
+            onSelectFolder={(id) => {
+              selectNode(id);
+              setHealthViewMode('tree');
+            }}
+            onSwitchToTree={() => setHealthViewMode('tree')}
+          />
+        ) : (
+        <>
         <div
           ref={containerRef}
           className={cn(
             'mind-map-viewport relative flex-1 overflow-hidden',
             isPanning && 'cursor-grabbing',
-            !isPanning && 'cursor-grab',
+            !isPanning && !canvasDragOver && 'cursor-grab',
+            canvasDragOver && 'ring-2 ring-inset ring-[var(--color-accent)]/40',
           )}
           onWheel={onWheel}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerLeave={onPointerUp}
+          onDragOver={handleCanvasDragOver}
+          onDragLeave={handleCanvasDragLeave}
+          onDrop={handleCanvasDrop}
         >
           <div
             className="absolute origin-top-left"
@@ -296,18 +400,10 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
                 }}
                 onContextMenu={() => setContextMenu(id)}
                 onCloseMenu={() => setContextMenu(null)}
-                onUpload={(files) =>
-                  onUploadFiles(
-                    files,
-                    docByNode[node.id]
-                      ? {
-                          kind: 'document',
-                          documentId: docByNode[node.id].id,
-                          nodeId: node.id,
-                        }
-                      : { kind: 'folder', nodeId: node.id },
-                  )
-                }
+                onUpload={(files) => {
+                  if (docByNode[node.id]) return;
+                  onUploadFiles(files, { kind: 'folder', nodeId: node.id });
+                }}
               />
             ))}
 
@@ -337,16 +433,34 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
               >
                 <p className="text-lg font-medium">Пустой холст</p>
                 <p className="mt-2 text-sm text-[var(--color-muted)]">
-                  Создайте корневую ветку или выберите пресет в меню
+                  Создайте корневую ветку или перетащите файлы сюда
                 </p>
               </div>
             )}
           </div>
+
+          {canvasDragOver && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[var(--color-accent)]/10 backdrop-blur-[1px]">
+              <div className="rounded-2xl border border-[var(--color-accent)] bg-[var(--color-surface)] px-6 py-4 text-sm shadow-lg">
+                Отпустите, чтобы загрузить в «{dropTargetLabel}»
+              </div>
+            </div>
+          )}
+
+          {uploading && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/10">
+              <div className="rounded-xl bg-[var(--color-surface)] px-6 py-3 text-sm shadow-lg">
+                Загрузка…
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="border-t border-[var(--color-border)] px-4 py-2 text-xs text-[var(--color-muted)]">
-          Перетаскивайте холст · Колёсико — масштаб · Клик по пунктиру — создать ветку
+          Перетаскивайте файлы на холст или на папку · Колёсико — масштаб
         </div>
+        </>
+        )}
       </div>
     </>
   );
@@ -371,20 +485,28 @@ function CanvasToolbar({
   activeRootName,
   rootCount,
   scale,
+  isHealthRoot,
+  healthViewMode,
+  onToggleHealthView,
   onOpenMap,
   onZoomIn,
   onZoomOut,
   onReset,
   onAddRoot,
+  hideZoom,
 }: {
   activeRootName?: string;
   rootCount: number;
   scale: number;
+  isHealthRoot?: boolean;
+  healthViewMode?: 'body' | 'tree';
+  onToggleHealthView?: () => void;
   onOpenMap: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onReset: () => void;
   onAddRoot: () => void;
+  hideZoom?: boolean;
 }) {
   return (
     <div className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface)]/80 px-4 py-2 backdrop-blur">
@@ -399,6 +521,24 @@ function CanvasToolbar({
         <span className="hidden truncate text-sm text-[var(--color-muted)] sm:inline">
           {activeRootName}
         </span>
+      )}
+      {isHealthRoot && onToggleHealthView && (
+        <button
+          type="button"
+          onClick={onToggleHealthView}
+          className={cn(
+            'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition',
+            healthViewMode === 'body'
+              ? 'bg-cyan-950/80 text-cyan-300 ring-1 ring-cyan-500/40'
+              : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]',
+          )}
+          title={healthViewMode === 'body' ? 'Рентген-карта тела' : 'Переключить на карту тела'}
+        >
+          <Activity size={14} />
+          <span className="hidden sm:inline">
+            {healthViewMode === 'body' ? 'Карта тела' : 'Рентген'}
+          </span>
+        </button>
       )}
       <div className="ml-auto flex items-center gap-1">
         <button
@@ -415,6 +555,8 @@ function CanvasToolbar({
             </span>
           )}
         </button>
+        {!hideZoom && (
+          <>
         <button type="button" onClick={onZoomOut} className="rounded-lg p-2 hover:bg-[var(--color-surface-2)]">
           <Minus size={14} />
         </button>
@@ -431,6 +573,8 @@ function CanvasToolbar({
         >
           Сбросить вид
         </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -485,11 +629,13 @@ function MindMapNodeCard({
       )}
       onDragOver={(e) => {
         e.preventDefault();
+        e.stopPropagation();
         setDragOver(true);
       }}
       onDragLeave={() => setDragOver(false)}
       onDrop={(e) => {
         e.preventDefault();
+        e.stopPropagation();
         setDragOver(false);
         onUpload(Array.from(e.dataTransfer.files));
       }}

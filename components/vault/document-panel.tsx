@@ -1,12 +1,11 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
 import { Download, FileText } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatBytes, formatDate } from '@/lib/format';
 import { useVaultStore } from '@/stores/vault-store';
 import { DocumentPreview } from '@/components/vault/document-preview';
-import { VersionTimeline } from '@/components/vault/version-timeline';
 import { FutureFeatures } from '@/components/vault/future-features';
 
 export function DocumentPanel() {
@@ -15,25 +14,16 @@ export function DocumentPanel() {
 
   const document = documents.find((d) => d.id === selectedDocumentId);
 
-  const versionsQuery = useQuery({
-    queryKey: ['versions', selectedDocumentId],
-    queryFn: () => api.getVersions(selectedDocumentId!),
-    enabled: !!selectedDocumentId,
-  });
-
-  const versions = versionsQuery.data ?? [];
-  const latest = versions[0];
-
   const assetQuery = useQuery({
-    queryKey: ['asset', latest?.assetId],
-    queryFn: () => api.getAsset(latest!.assetId),
-    enabled: !!latest?.assetId,
+    queryKey: ['asset', document?.assetId],
+    queryFn: () => api.getAsset(document!.assetId),
+    enabled: !!document?.assetId,
   });
 
   const downloadQuery = useQuery({
-    queryKey: ['download', latest?.assetId],
-    queryFn: () => api.getDownloadUrl(latest!.assetId),
-    enabled: !!latest?.assetId,
+    queryKey: ['download', document?.assetId],
+    queryFn: () => api.getDownloadUrl(document!.assetId),
+    enabled: !!document?.assetId,
   });
 
   if (!selectedDocumentId || !document) {
@@ -56,7 +46,10 @@ export function DocumentPanel() {
         <h2 className="mt-1 font-[family-name:var(--font-display)] text-2xl leading-tight">
           {document.title}
         </h2>
-        {document.description && (
+        {document.aiSummary && (
+          <p className="mt-2 text-sm text-[var(--color-muted)]">{document.aiSummary}</p>
+        )}
+        {document.description && document.description !== document.aiSummary && (
           <p className="mt-2 text-sm text-[var(--color-muted)]">{document.description}</p>
         )}
       </div>
@@ -64,8 +57,8 @@ export function DocumentPanel() {
       <div className="grid grid-cols-2 gap-3 border-b border-[var(--color-border)] p-5 text-sm">
         <Meta label="Создан" value={formatDate(document.createdAt)} />
         <Meta label="Обновлён" value={formatDate(document.updatedAt)} />
-        <Meta label="Версий" value={String(versions.length)} />
         <Meta label="Размер" value={assetQuery.data ? formatBytes(assetQuery.data.size) : '—'} />
+        <Meta label="Тип" value={assetQuery.data?.mimeType ?? '—'} />
       </div>
 
       <div className="border-b border-[var(--color-border)] p-5">
@@ -82,14 +75,9 @@ export function DocumentPanel() {
             className="mt-3 inline-flex items-center gap-2 text-sm text-[var(--color-accent)] hover:underline"
           >
             <Download size={14} />
-            Скачать последнюю версию
+            Скачать файл
           </a>
         )}
-      </div>
-
-      <div className="p-5">
-        <h3 className="mb-4 text-sm font-medium">История версий</h3>
-        <VersionTimeline versions={versions} />
       </div>
 
       <FutureFeatures />

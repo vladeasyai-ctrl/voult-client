@@ -32,7 +32,7 @@ export const VAULT_PRESETS: VaultPreset[] = [
   {
     id: 'health',
     label: 'Здоровье',
-    description: 'Анализы, визиты к врачу, рецепты и медкарта',
+    description: 'Карта тела — нажмите на зону и создайте папки для документов',
     emoji: '🩺',
     rootName: 'Здоровье',
     branches: [

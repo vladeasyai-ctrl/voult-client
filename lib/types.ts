@@ -13,18 +13,39 @@ export interface TreeNode {
 export interface Document {
   id: string;
   nodeId: string;
+  assetId: string;
   title: string;
   description: string | null;
+  aiSummary: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface DocumentVersion {
+export type ImportStatus =
+  | 'UPLOADED'
+  | 'ANALYZING'
+  | 'PROPOSAL_READY'
+  | 'FAILED'
+  | 'CONFIRMED'
+  | 'DISCARDED';
+
+export interface ImportProposal {
+  title: string;
+  summary: string;
+  tags: string[];
+  folderPath: string[];
+  createMissingFolders: boolean;
+  confidence: number;
+}
+
+export interface ImportSession {
   id: string;
-  documentId: string;
   assetId: string;
-  version: number;
+  status: ImportStatus;
+  proposal: ImportProposal | null;
+  errorMessage: string | null;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface Asset {
@@ -49,5 +70,51 @@ export interface DownloadUrlResponse {
 
 export type DropTarget =
   | { kind: 'folder'; nodeId: string }
-  | { kind: 'document'; documentId: string; nodeId: string }
   | { kind: 'content'; folderId: string | null };
+
+export interface ConfirmImportPayload {
+  title: string;
+  summary: string;
+  tags: string[];
+  folderPath: string[];
+  parentId: string | null;
+}
+
+export interface AiSettings {
+  provider: string;
+  model: string;
+  baseUrl: string;
+  apiKeyConfigured: boolean;
+  apiKeyHint: string | null;
+}
+
+export interface UpdateAiSettingsPayload {
+  provider: string;
+  apiKey?: string;
+  model?: string;
+  baseUrl?: string;
+}
+
+export interface AiPlanAction {
+  type: string;
+  name?: string | null;
+  newName?: string | null;
+  nodeId?: string | null;
+  documentId?: string | null;
+  parentNodeId?: string | null;
+  targetParentNodeId?: string | null;
+  folderPath?: string[] | null;
+  targetFolderPath?: string[] | null;
+}
+
+export interface AiPlanResponse {
+  reply: string;
+  actions: AiPlanAction[];
+}
+
+export interface AiExecuteResponse {
+  reply: string;
+  executedActions: string[];
+  errors: string[];
+  success: boolean;
+}

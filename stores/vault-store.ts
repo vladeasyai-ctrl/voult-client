@@ -15,6 +15,7 @@ interface VaultState {
   presetId: string | null;
   onboarded: boolean;
   activeRootId: string | null;
+  healthViewMode: 'body' | 'tree';
   canvas: { x: number; y: number; scale: number };
   setTree: (tree: TreeNode[]) => void;
   setDocuments: (documents: Document[]) => void;
@@ -26,6 +27,7 @@ interface VaultState {
   setPresetId: (id: string | null) => void;
   setOnboarded: (value: boolean) => void;
   setActiveRootId: (id: string | null) => void;
+  setHealthViewMode: (mode: 'body' | 'tree') => void;
   setCanvas: (canvas: Partial<{ x: number; y: number; scale: number }>) => void;
 }
 
@@ -42,6 +44,7 @@ export const useVaultStore = create<VaultState>()(
       presetId: null,
       onboarded: false,
       activeRootId: null,
+      healthViewMode: 'body',
       canvas: { x: 0, y: 0, scale: 1 },
       setTree: (tree) => set({ tree }),
       setDocuments: (documents) => set({ documents }),
@@ -59,6 +62,7 @@ export const useVaultStore = create<VaultState>()(
       setPresetId: (id) => set({ presetId: id }),
       setOnboarded: (value) => set({ onboarded: value }),
       setActiveRootId: (id) => set({ activeRootId: id }),
+      setHealthViewMode: (mode) => set({ healthViewMode: mode }),
       setCanvas: (canvas) =>
         set((s) => ({ canvas: { ...s.canvas, ...canvas } })),
     }),
@@ -69,6 +73,7 @@ export const useVaultStore = create<VaultState>()(
         presetId: s.presetId,
         onboarded: s.onboarded,
         activeRootId: s.activeRootId,
+        healthViewMode: s.healthViewMode,
         canvas: s.canvas,
       }),
     },

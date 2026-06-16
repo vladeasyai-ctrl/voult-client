@@ -47,7 +47,6 @@ export function useVaultMutations() {
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['tree'] });
     queryClient.invalidateQueries({ queryKey: ['documents'] });
-    queryClient.invalidateQueries({ queryKey: ['versions'] });
   };
 
   const createFolder = useMutation({
