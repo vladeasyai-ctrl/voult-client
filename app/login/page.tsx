@@ -93,7 +93,6 @@ function LoginForm() {
                 size="large"
                 width="100%"
                 text="continue_with"
-                locale="ru"
               />
             </div>
             <div className="flex items-center gap-3 text-xs text-[var(--color-muted)]">
