@@ -16,10 +16,11 @@ import type {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080';
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
+    public code?: string,
   ) {
     super(message);
   }
@@ -39,7 +40,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     if (response.status === 401) clearToken();
     const body = await response.json().catch(() => ({}));
-    throw new ApiError(body.message ?? 'Request failed', response.status);
+    throw new ApiError(body.message ?? 'Request failed', response.status, body.code);
   }
 
   if (response.status === 204) return undefined as T;
@@ -158,4 +159,3 @@ export const api = {
     }),
 };
 
-export { ApiError };

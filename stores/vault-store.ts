@@ -3,10 +3,27 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Document, TreeNode } from '@/lib/types';
+import type { NodeOrderMap } from '@/lib/node-order';
+import {
+  applyNodeOrder,
+  moveInOrderMap,
+  parentOrderKey,
+  reorderInMap,
+  syncOrderMap,
+} from '@/lib/node-order';
+import {
+  collectPendingNodes,
+  insertChild,
+  mergePendingIntoTree,
+  removeNodeFromTree,
+  renameNodeInTree,
+  replaceNodeIdInTree,
+} from '@/lib/tree-mutations';
 
 interface VaultState {
   tree: TreeNode[];
   documents: Document[];
+  nodeOrder: NodeOrderMap;
   selectedFolderId: string | null;
   selectedNodeId: string | null;
   selectedDocumentId: string | null;
@@ -19,6 +36,26 @@ interface VaultState {
   canvas: { x: number; y: number; scale: number };
   setTree: (tree: TreeNode[]) => void;
   setDocuments: (documents: Document[]) => void;
+  setNodeOrder: (order: NodeOrderMap) => void;
+  applyOrderedTree: (tree: TreeNode[]) => void;
+  reorderNodeLocal: (
+    nodeId: string,
+    parentId: string | null,
+    sortIndex: number,
+  ) => void;
+  moveNodeLocal: (
+    nodeId: string,
+    fromParentId: string | null,
+    toParentId: string | null,
+    sortIndex: number,
+  ) => void;
+  addPendingFolder: (parentId: string | null, node: TreeNode) => void;
+  confirmPendingFolder: (
+    tempId: string,
+    real: Pick<TreeNode, 'id' | 'name' | 'parentId' | 'type' | 'createdAt' | 'updatedAt'>,
+  ) => void;
+  removeNodeLocal: (nodeId: string) => void;
+  renameNodeLocal: (nodeId: string, name: string) => void;
   selectFolder: (id: string | null) => void;
   selectNode: (nodeId: string | null, documentId?: string | null) => void;
   toggleRightPanel: () => void;
@@ -36,6 +73,7 @@ export const useVaultStore = create<VaultState>()(
     (set) => ({
       tree: [],
       documents: [],
+      nodeOrder: {},
       selectedFolderId: null,
       selectedNodeId: null,
       selectedDocumentId: null,
@@ -48,6 +86,70 @@ export const useVaultStore = create<VaultState>()(
       canvas: { x: 0, y: 0, scale: 1 },
       setTree: (tree) => set({ tree }),
       setDocuments: (documents) => set({ documents }),
+      setNodeOrder: (nodeOrder) => set({ nodeOrder }),
+      applyOrderedTree: (apiTree) =>
+        set((s) => {
+          const pending = collectPendingNodes(s.tree);
+          const merged = mergePendingIntoTree(apiTree, pending);
+          const synced = syncOrderMap(merged, s.nodeOrder);
+          return {
+            nodeOrder: synced,
+            tree: applyNodeOrder(merged, synced),
+          };
+        }),
+      reorderNodeLocal: (nodeId, parentId, sortIndex) =>
+        set((s) => {
+          const nodeOrder = reorderInMap(s.nodeOrder, parentId, nodeId, sortIndex);
+          return {
+            nodeOrder,
+            tree: applyNodeOrder(s.tree, nodeOrder),
+          };
+        }),
+      moveNodeLocal: (nodeId, fromParentId, toParentId, sortIndex) =>
+        set((s) => ({
+          nodeOrder: moveInOrderMap(
+            s.nodeOrder,
+            nodeId,
+            fromParentId,
+            toParentId,
+            sortIndex,
+          ),
+        })),
+      addPendingFolder: (parentId, node) =>
+        set((s) => {
+          const withChild = insertChild(s.tree, parentId, node);
+          const key = parentOrderKey(parentId);
+          const list = [...(s.nodeOrder[key] ?? []), node.id];
+          const nodeOrder = { ...s.nodeOrder, [key]: list };
+          return { tree: applyNodeOrder(withChild, nodeOrder), nodeOrder };
+        }),
+      confirmPendingFolder: (tempId, real) =>
+        set((s) => {
+          const replaced = replaceNodeIdInTree(s.tree, tempId, real.id, {
+            ...real,
+            children: [],
+          });
+          const nodeOrder: NodeOrderMap = {};
+          for (const [key, ids] of Object.entries(s.nodeOrder)) {
+            nodeOrder[key] = ids.map((id) => (id === tempId ? real.id : id));
+          }
+          return { tree: applyNodeOrder(replaced, nodeOrder), nodeOrder };
+        }),
+      removeNodeLocal: (nodeId) =>
+        set((s) => {
+          const nodeOrder: NodeOrderMap = {};
+          for (const [key, ids] of Object.entries(s.nodeOrder)) {
+            nodeOrder[key] = ids.filter((id) => id !== nodeId);
+          }
+          return {
+            tree: applyNodeOrder(removeNodeFromTree(s.tree, nodeId), nodeOrder),
+            nodeOrder,
+          };
+        }),
+      renameNodeLocal: (nodeId, name) =>
+        set((s) => ({
+          tree: applyNodeOrder(renameNodeInTree(s.tree, nodeId, name), s.nodeOrder),
+        })),
       selectFolder: (id) =>
         set({ selectedFolderId: id, selectedNodeId: id, selectedDocumentId: null }),
       selectNode: (nodeId, documentId = null) =>
@@ -75,6 +177,7 @@ export const useVaultStore = create<VaultState>()(
         activeRootId: s.activeRootId,
         healthViewMode: s.healthViewMode,
         canvas: s.canvas,
+        nodeOrder: s.nodeOrder,
       }),
     },
   ),

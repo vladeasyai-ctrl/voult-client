@@ -3,7 +3,8 @@
 import { Loader2, Sparkles, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/cn';
-import type { ConfirmImportPayload, ImportProposal } from '@/lib/types';
+import { AI_IMPORT_ACCEPT } from '@/lib/ai-import';
+import type { ImportProposal } from '@/lib/types';
 import { useAiImport } from '@/hooks/use-ai-import';
 
 const inputClassName =
@@ -23,7 +24,7 @@ export function AiImportDialog({ open, onClose, initialFile }: AiImportDialogPro
     error,
     uploadFile,
     runAnalysis,
-    confirm,
+    confirmWithDefaults,
     discard,
     reset,
   } = useAiImport();
@@ -49,8 +50,11 @@ export function AiImportDialog({ open, onClose, initialFile }: AiImportDialogPro
     const key = `${initialFile.name}:${initialFile.size}:${initialFile.lastModified}`;
     if (startedRef.current === key) return;
     startedRef.current = key;
-    uploadFile(initialFile);
-  }, [open, initialFile, uploadFile]);
+    void (async () => {
+      const created = await uploadFile(initialFile);
+      if (created) await runAnalysis(created.id);
+    })();
+  }, [open, initialFile, uploadFile, runAnalysis]);
 
   useEffect(() => {
     if (session?.proposal) {
@@ -69,11 +73,10 @@ export function AiImportDialog({ open, onClose, initialFile }: AiImportDialogPro
 
   const analyzing = session?.status === 'ANALYZING';
   const ready = session?.status === 'PROPOSAL_READY' && session.proposal;
-  const uploaded = session?.status === 'UPLOADED';
 
   const handleConfirm = async () => {
     if (!ready) return;
-    const payload: ConfirmImportPayload = {
+    const ok = await confirmWithDefaults({
       title: title.trim() || session.proposal!.title,
       summary: summary.trim(),
       tags: tags
@@ -84,10 +87,8 @@ export function AiImportDialog({ open, onClose, initialFile }: AiImportDialogPro
         .split('/')
         .map((p) => p.trim())
         .filter(Boolean),
-      parentId: null,
-    };
-    await confirm(payload);
-    onClose();
+    });
+    if (ok) onClose();
   };
 
   const handleDiscard = async () => {
@@ -101,7 +102,7 @@ export function AiImportDialog({ open, onClose, initialFile }: AiImportDialogPro
         <div className="flex items-center justify-between border-b border-[var(--color-border)] px-5 py-4">
           <div className="flex items-center gap-2">
             <Sparkles size={18} className="text-[var(--color-accent)]" />
-            <h2 className="font-[family-name:var(--font-display)] text-lg">AI-разбор документа</h2>
+            <h2 className="font-[family-name:var(--font-display)] text-lg">AI-импорт</h2>
           </div>
           <button
             type="button"
@@ -122,34 +123,23 @@ export function AiImportDialog({ open, onClose, initialFile }: AiImportDialogPro
           {!session && !busy && (
             <label className="flex cursor-pointer flex-col items-center gap-3 rounded-2xl border border-dashed border-[var(--color-border)] p-8 text-center hover:border-[var(--color-accent)]">
               <Sparkles size={24} className="text-[var(--color-accent)]" />
-              <span className="text-sm">Перетащите файл или выберите на диске</span>
+              <span className="text-sm">Выберите фото или PDF для AI-импорта</span>
               <input
                 type="file"
+                accept={AI_IMPORT_ACCEPT}
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
-                  if (file) uploadFile(file);
+                  if (file) void uploadFile(file).then((s) => s && runAnalysis(s.id));
                 }}
               />
             </label>
           )}
 
-          {uploaded && (
-            <button
-              type="button"
-              onClick={runAnalysis}
-              disabled={busy}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-accent)] px-4 py-3 text-sm text-white hover:opacity-90 disabled:opacity-50"
-            >
-              <Sparkles size={16} />
-              Разобрать с AI
-            </button>
-          )}
-
           {analyzing && (
             <div className="flex items-center gap-3 rounded-xl bg-[var(--color-surface-2)] px-4 py-3 text-sm">
               <Loader2 size={16} className="animate-spin text-[var(--color-accent)]" />
-              AI анализирует документ…
+              AI анализирует файл…
             </div>
           )}
 
@@ -161,6 +151,11 @@ export function AiImportDialog({ open, onClose, initialFile }: AiImportDialogPro
 
           {ready && (
             <div className="space-y-3">
+              {session.proposal!.createMissingFolders && (
+                <p className="rounded-lg bg-[var(--color-accent-soft)] px-3 py-2 text-xs text-[var(--color-accent)]">
+                  Будут созданы папки: {session.proposal!.folderPath.join(' → ')}
+                </p>
+              )}
               <Field label="Название">
                 <input value={title} onChange={(e) => setTitle(e.target.value)} className={inputClassName} />
               </Field>
@@ -194,7 +189,7 @@ export function AiImportDialog({ open, onClose, initialFile }: AiImportDialogPro
             disabled={busy}
             className="rounded-xl px-4 py-2 text-sm text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]"
           >
-            Отмена
+            Отклонить
           </button>
           {ready && (
             <button

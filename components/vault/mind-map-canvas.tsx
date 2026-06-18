@@ -6,6 +6,8 @@ import {
   Activity,
   FileText,
   Folder,
+  FolderPlus,
+  GripVertical,
   Map,
   Minus,
   MoreHorizontal,
@@ -17,26 +19,83 @@ import {
 import { cn } from '@/lib/cn';
 import {
   buildMindMapLayout,
-  curvedEdgePath,
   NODE_HEIGHT,
   NODE_WIDTH,
-  SUGGESTION_HEIGHT,
 } from '@/lib/mind-map-layout';
-import { getSuggestions, findPresetByRootName, type VaultPreset } from '@/lib/presets';
+import {
+  canvasPointFromClient,
+  insertionPlaceholderX,
+  insertionPlaceholderY,
+  resolveDragDropTarget,
+  SUGGESTION_SLOT_HEIGHT,
+  type DragDropTarget,
+} from '@/lib/mind-map-dnd';
+import { removeFromOrderMap } from '@/lib/node-order';
+import { applyTreeMove } from '@/lib/tree-move-utils';
+import { createPendingFolder, isPendingNodeId, suggestChildFolderName } from '@/lib/tree-mutations';
+import { findPresetByRootName, type VaultPreset } from '@/lib/presets';
 import { isHealthPresetRoot } from '@/lib/health-body-map';
-import { flattenTree } from '@/lib/tree-utils';
+import { flattenTree, findNode } from '@/lib/tree-utils';
 import type { DropTarget, TreeNode } from '@/lib/types';
+import { AI_IMPORT_UNSUPPORTED_HINT, isAiImportFile } from '@/lib/ai-import';
 import { useVaultMutations } from '@/hooks/use-vault-data';
 import { useVaultStore } from '@/stores/vault-store';
 import { PresetPicker } from '@/components/vault/preset-picker';
 import { RootFolderMap } from '@/components/vault/root-folder-map';
 import { HealthBodyCanvas } from '@/components/vault/health-body-canvas';
+import { MindMapEdges } from '@/components/vault/mind-map-edges';
+import {
+  MindMapDeleteFly,
+  MindMapTrashZone,
+  isOverTrash,
+  nodeViewportBox,
+  trashTargetInContainer,
+} from '@/components/vault/mind-map-trash';
+
+interface DragState {
+  nodeId: string;
+  canvasX: number;
+  canvasY: number;
+  offsetX: number;
+  offsetY: number;
+}
+
+interface PendingDelete {
+  nodeId: string;
+  node: TreeNode;
+  documentId?: string;
+  startLeft: number;
+  startTop: number;
+  startWidth: number;
+  startHeight: number;
+  targetLeft: number;
+  targetTop: number;
+}
 
 interface MindMapCanvasProps {
   onUploadFiles: (files: File[], target?: DropTarget) => Promise<void>;
+  onAiImportFile?: (file: File, target: DropTarget) => void;
 }
 
-export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
+async function handleFileDrop(
+  files: File[],
+  target: DropTarget,
+  onAiImportFile: MindMapCanvasProps['onAiImportFile'],
+  onUploadFiles: MindMapCanvasProps['onUploadFiles'],
+): Promise<'ai' | 'upload' | 'unsupported'> {
+  const importFiles = files.filter(isAiImportFile);
+  if (importFiles.length > 0 && onAiImportFile) {
+    onAiImportFile(importFiles[0], target);
+    return 'ai';
+  }
+  if (files.some((f) => !isAiImportFile(f)) && importFiles.length === 0) {
+    return 'unsupported';
+  }
+  await onUploadFiles(files, target);
+  return 'upload';
+}
+
+export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasProps) {
   const tree = useVaultStore((s) => s.tree);
   const documents = useVaultStore((s) => s.documents);
   const presetId = useVaultStore((s) => s.presetId);
@@ -53,18 +112,33 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
   const setActiveRootId = useVaultStore((s) => s.setActiveRootId);
   const healthViewMode = useVaultStore((s) => s.healthViewMode);
   const setHealthViewMode = useVaultStore((s) => s.setHealthViewMode);
+  const reorderNodeLocal = useVaultStore((s) => s.reorderNodeLocal);
+  const moveNodeLocal = useVaultStore((s) => s.moveNodeLocal);
+  const setNodeOrder = useVaultStore((s) => s.setNodeOrder);
+  const addPendingFolder = useVaultStore((s) => s.addPendingFolder);
+  const removeNodeLocal = useVaultStore((s) => s.removeNodeLocal);
+  const renameNodeLocal = useVaultStore((s) => s.renameNodeLocal);
 
-  const { createFolder, renameNode, deleteFolder, deleteDocument, invalidate } =
+  const { createFolder, renameNode, moveNode, deleteFolder, deleteDocument, invalidate } =
     useVaultMutations();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [canvasDragOver, setCanvasDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [dropHint, setDropHint] = useState<string | null>(null);
   const panStart = useRef({ x: 0, y: 0, canvasX: 0, canvasY: 0 });
   const [contextMenu, setContextMenu] = useState<string | null>(null);
   const [showPresetPicker, setShowPresetPicker] = useState(false);
   const [showRootMap, setShowRootMap] = useState(false);
+  const [dragState, setDragState] = useState<DragState | null>(null);
+  const [dropTarget, setDropTarget] = useState<DragDropTarget | null>(null);
+  const [dragToTrash, setDragToTrash] = useState(false);
+  const [trashDenied, setTrashDenied] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  const trashRef = useRef<HTMLDivElement>(null);
+  const pendingDeleteRef = useRef<PendingDelete | null>(null);
+  const [pendingDefaultNames, setPendingDefaultNames] = useState<Record<string, string>>({});
 
   const rootFolders = useMemo(
     () => tree.filter((n) => n.type === 'FOLDER'),
@@ -116,39 +190,319 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
     }
   }, [onboarded, tree.length]);
 
-  const allSuggestions = useMemo(() => {
-    return flat
-      .filter((n) => n.type === 'FOLDER')
-      .flatMap((n) =>
-        getSuggestions(n, resolvePresetId(n, displayTree, presetId)),
-      );
-  }, [flat, presetId, displayTree]);
-
-  const layout = useMemo(
-    () => buildMindMapLayout(displayTree, allSuggestions),
-    [displayTree, allSuggestions],
+  const baseLayout = useMemo(
+    () => buildMindMapLayout(displayTree),
+    [displayTree],
   );
 
-  const handleAddRoot = async () => {
+  const treeForLayout = useMemo(() => {
+    if (!dragState || !dropTarget) return displayTree;
+    return applyTreeMove(
+      displayTree,
+      dragState.nodeId,
+      dropTarget.parentId,
+      dropTarget.sortIndex,
+    );
+  }, [displayTree, dragState, dropTarget]);
+
+  const layout = useMemo(
+    () => buildMindMapLayout(treeForLayout),
+    [treeForLayout],
+  );
+
+  const draggedNode = dragState
+    ? flat.find((n) => n.id === dragState.nodeId) ?? null
+    : null;
+
+  const canDeleteNode = useCallback((node: TreeNode) => {
+    if (node.type === 'DOCUMENT') return true;
+    return node.children.length === 0;
+  }, []);
+
+  const flashTrashDenied = useCallback(() => {
+    setTrashDenied(true);
+    window.setTimeout(() => setTrashDenied(false), 550);
+  }, []);
+
+  const beginDeleteAnimation = useCallback(
+    (node: TreeNode, box: { left: number; top: number; width: number; height: number }) => {
+      if (!canDeleteNode(node)) {
+        flashTrashDenied();
+        return;
+      }
+
+      const trash = trashRef.current;
+      const container = containerRef.current;
+      if (!trash || !container) return;
+
+      // Убираем из дерева сразу — нода не «возвращается» после анимации
+      removeNodeLocal(node.id);
+      setNodeOrder(
+        removeFromOrderMap(useVaultStore.getState().nodeOrder, node.id),
+      );
+      if (node.parentId === null) {
+        const remaining = useVaultStore
+          .getState()
+          .tree.filter((r) => r.type === 'FOLDER' && r.id !== node.id);
+        setActiveRootId(remaining[0]?.id ?? null);
+      }
+      if (selectedNodeId === node.id) selectNode(null);
+
+      const target = trashTargetInContainer(trash, container, box.width, box.height);
+      const pending: PendingDelete = {
+        nodeId: node.id,
+        node,
+        documentId: docByNode[node.id]?.id,
+        startLeft: box.left,
+        startTop: box.top,
+        startWidth: box.width,
+        startHeight: box.height,
+        targetLeft: target.left,
+        targetTop: target.top,
+      };
+
+      pendingDeleteRef.current = pending;
+      setPendingDelete(pending);
+      setContextMenu(null);
+    },
+    [
+      canDeleteNode,
+      flashTrashDenied,
+      docByNode,
+      removeNodeLocal,
+      setNodeOrder,
+      setActiveRootId,
+      selectedNodeId,
+      selectNode,
+    ],
+  );
+
+  const handleDeleteFlyComplete = useCallback(() => {
+    const pending = pendingDeleteRef.current;
+    if (!pending) return;
+
+    pendingDeleteRef.current = null;
+    setPendingDelete(null);
+
+    if (pending.documentId) {
+      deleteDocument.mutate(pending.documentId);
+    } else {
+      deleteFolder.mutate(pending.nodeId);
+    }
+  }, [deleteDocument, deleteFolder]);
+
+  const requestDelete = useCallback(
+    (nodeId: string) => {
+      if (isPendingNodeId(nodeId)) {
+        removeNodeLocal(nodeId);
+        if (selectedNodeId === nodeId) selectNode(null);
+        return;
+      }
+
+      const node = flat.find((n) => n.id === nodeId);
+      if (!node) return;
+
+      const box =
+        nodeViewportBox(nodeId, baseLayout.nodes, canvas) ??
+        (dragState?.nodeId === nodeId
+          ? {
+              left: canvas.x + dragState.canvasX * canvas.scale,
+              top: canvas.y + dragState.canvasY * canvas.scale,
+              width: NODE_WIDTH * canvas.scale,
+              height: NODE_HEIGHT * canvas.scale,
+            }
+          : null);
+
+      if (!box) return;
+      beginDeleteAnimation(node, box);
+    },
+    [flat, baseLayout.nodes, canvas, dragState, beginDeleteAnimation, removeNodeLocal, selectedNodeId, selectNode],
+  );
+
+  const updateDrag = useCallback(
+    (clientX: number, clientY: number) => {
+      if (!dragState || !draggedNode || !containerRef.current) return;
+
+      const rect = containerRef.current.getBoundingClientRect();
+      const point = canvasPointFromClient(
+        clientX,
+        clientY,
+        rect,
+        canvas.x,
+        canvas.y,
+        canvas.scale,
+      );
+
+      setDragState((prev) =>
+        prev
+          ? {
+              ...prev,
+              canvasX: point.x - prev.offsetX,
+              canvasY: point.y - prev.offsetY,
+            }
+          : null,
+      );
+
+      const trashEl = trashRef.current;
+      if (trashEl && isOverTrash(clientX, clientY, trashEl)) {
+        setDragToTrash(true);
+        setDropTarget(null);
+        return;
+      }
+
+      setDragToTrash(false);
+      const target = resolveDragDropTarget(
+        point,
+        draggedNode,
+        baseLayout.nodes,
+        displayTree,
+      );
+      setDropTarget(target);
+    },
+    [dragState, draggedNode, canvas.x, canvas.y, canvas.scale, baseLayout.nodes, displayTree],
+  );
+
+  const finishDrag = useCallback(async () => {
+    if (!dragState || !draggedNode) {
+      setDragState(null);
+      setDropTarget(null);
+      setDragToTrash(false);
+      return;
+    }
+
+    if (dragToTrash) {
+      const box = {
+        left: canvas.x + dragState.canvasX * canvas.scale,
+        top: canvas.y + dragState.canvasY * canvas.scale,
+        width: NODE_WIDTH * canvas.scale,
+        height: NODE_HEIGHT * canvas.scale,
+      };
+      setDragState(null);
+      setDropTarget(null);
+      setDragToTrash(false);
+      beginDeleteAnimation(draggedNode, box);
+      return;
+    }
+
+    if (!dropTarget) {
+      setDragState(null);
+      setDragToTrash(false);
+      return;
+    }
+
+    const sameParent = draggedNode.parentId === dropTarget.parentId;
+    const currentIndex = getSiblingIndex(displayTree, dragState.nodeId, draggedNode.parentId);
+    const unchanged = sameParent && dropTarget.sortIndex === currentIndex;
+
+    if (!unchanged) {
+      if (sameParent) {
+        reorderNodeLocal(dragState.nodeId, dropTarget.parentId, dropTarget.sortIndex);
+      } else {
+        moveNodeLocal(
+          dragState.nodeId,
+          draggedNode.parentId,
+          dropTarget.parentId,
+          dropTarget.sortIndex,
+        );
+        moveNode.mutate({
+          id: dragState.nodeId,
+          parentId: dropTarget.parentId,
+        });
+      }
+    }
+
+    setDragState(null);
+    setDropTarget(null);
+    setDragToTrash(false);
+  }, [
+    dragState,
+    dropTarget,
+    draggedNode,
+    dragToTrash,
+    canvas,
+    displayTree,
+    reorderNodeLocal,
+    moveNodeLocal,
+    moveNode,
+    beginDeleteAnimation,
+  ]);
+
+  useEffect(() => {
+    if (!dragState) return;
+
+    const onMove = (e: PointerEvent) => updateDrag(e.clientX, e.clientY);
+    const onUp = () => finishDrag();
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+  }, [dragState, updateDrag, finishDrag]);
+
+  const startNodeDrag = useCallback(
+    (nodeId: string, clientX: number, clientY: number) => {
+      if (!containerRef.current) return;
+      const positioned = baseLayout.nodes.find((n) => n.id === nodeId);
+      if (!positioned) return;
+
+      const rect = containerRef.current.getBoundingClientRect();
+      const point = canvasPointFromClient(
+        clientX,
+        clientY,
+        rect,
+        canvas.x,
+        canvas.y,
+        canvas.scale,
+      );
+      const dragged = flat.find((n) => n.id === nodeId);
+      if (!dragged) return;
+
+      const offsetX = point.x - positioned.x;
+      const offsetY = point.y - positioned.y;
+
+      setDragState({
+        nodeId,
+        canvasX: positioned.x,
+        canvasY: positioned.y,
+        offsetX,
+        offsetY,
+      });
+      setDropTarget(
+        resolveDragDropTarget(point, dragged, baseLayout.nodes, displayTree),
+      );
+    },
+    [baseLayout.nodes, canvas.x, canvas.y, canvas.scale, displayTree, flat],
+  );
+
+  const handleAddRoot = () => {
     const name = prompt('Название корневой ветки');
     if (!name?.trim()) return;
-    const created = await createFolder.mutateAsync({
-      name: name.trim(),
-      parentId: null,
-    });
-    setActiveRootId(created.id);
-    setCanvas({ x: 0, y: 0, scale: 1 });
-    await invalidate();
+    createFolder.mutate(
+      { name: name.trim(), parentId: null },
+      {
+        onSuccess: (created) => {
+          setActiveRootId(created.id);
+          setCanvas({ x: 0, y: 0, scale: 1 });
+        },
+      },
+    );
   };
 
-  const handlePreset = async (preset: VaultPreset) => {
-    const created = await createFolder.mutateAsync({ name: preset.rootName, parentId: null });
-    setPresetId(preset.id);
-    setActiveRootId(created.id);
-    if (preset.id === 'health') setHealthViewMode('body');
-    setOnboarded(true);
-    setShowPresetPicker(false);
-    await invalidate();
+  const handlePreset = (preset: VaultPreset) => {
+    createFolder.mutate(
+      { name: preset.rootName, parentId: null },
+      {
+        onSuccess: (created) => {
+          setPresetId(preset.id);
+          setActiveRootId(created.id);
+          if (preset.id === 'health') setHealthViewMode('body');
+          setOnboarded(true);
+          setShowPresetPicker(false);
+        },
+      },
+    );
   };
 
   const handleSkipPreset = () => {
@@ -156,19 +510,88 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
     setShowPresetPicker(false);
   };
 
-  const handleCreateSuggestion = async (parentId: string, label: string) => {
-    const name =
-      label === '+ Новая ветка'
-        ? prompt('Название ветки') ?? ''
-        : label;
-    if (!name.trim()) return;
-    const created = await createFolder.mutateAsync({
-      name: name.trim(),
-      parentId,
+  const startChildFolder = useCallback(
+    (parentId: string) => {
+      const parent = flat.find((n) => n.id === parentId);
+      if (!parent || parent.type !== 'FOLDER') return;
+
+      const suggested = suggestChildFolderName(parent.name, parent.children);
+      const pending = createPendingFolder(parentId);
+      setPendingDefaultNames((prev) => ({ ...prev, [pending.id]: suggested }));
+      addPendingFolder(parentId, pending);
+      setRenamingNodeId(pending.id);
+      selectNode(pending.id);
+      setContextMenu(null);
+    },
+    [flat, addPendingFolder, selectNode, setRenamingNodeId],
+  );
+
+  const clearPendingDefaultName = useCallback((nodeId: string) => {
+    setPendingDefaultNames((prev) => {
+      if (!prev[nodeId]) return prev;
+      const next = { ...prev };
+      delete next[nodeId];
+      return next;
     });
-    selectNode(created.id);
-    await invalidate();
-  };
+  }, []);
+
+  const handleCommitRename = useCallback(
+    (nodeId: string, name: string) => {
+      const trimmed = name.trim();
+      const node = flat.find((n) => n.id === nodeId);
+      if (!node) return;
+
+      setRenamingNodeId(null);
+
+      if (isPendingNodeId(nodeId)) {
+        const defaultName = pendingDefaultNames[nodeId] ?? '';
+        const finalName = trimmed || defaultName;
+        clearPendingDefaultName(nodeId);
+
+        if (!finalName) {
+          removeNodeLocal(nodeId);
+          if (selectedNodeId === nodeId) selectNode(null);
+          return;
+        }
+        renameNodeLocal(nodeId, finalName);
+        selectNode(nodeId);
+        createFolder.mutate({
+          name: finalName,
+          parentId: node.parentId,
+          tempId: nodeId,
+        });
+        return;
+      }
+
+      if (!trimmed || trimmed === node.name) return;
+      renameNodeLocal(nodeId, trimmed);
+      renameNode.mutate({ id: nodeId, name: trimmed });
+    },
+    [
+      flat,
+      pendingDefaultNames,
+      clearPendingDefaultName,
+      selectedNodeId,
+      removeNodeLocal,
+      renameNodeLocal,
+      selectNode,
+      setRenamingNodeId,
+      createFolder,
+      renameNode,
+    ],
+  );
+
+  const handleCancelRename = useCallback(
+    (nodeId: string) => {
+      setRenamingNodeId(null);
+      if (isPendingNodeId(nodeId)) {
+        clearPendingDefaultName(nodeId);
+        removeNodeLocal(nodeId);
+        if (selectedNodeId === nodeId) selectNode(null);
+      }
+    },
+    [clearPendingDefaultName, removeNodeLocal, selectedNodeId, selectNode, setRenamingNodeId],
+  );
 
   const onWheel = useCallback(
     (e: React.WheelEvent) => {
@@ -180,18 +603,16 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
     [canvas.scale, setCanvas],
   );
 
-  const handleCreateHealthFolder = async (name: string) => {
+  const handleCreateHealthFolder = (name: string) => {
     if (!activeRoot) return;
-    const created = await createFolder.mutateAsync({
-      name,
-      parentId: activeRoot.id,
-    });
-    selectNode(created.id);
-    await invalidate();
+    createFolder.mutate(
+      { name, parentId: activeRoot.id },
+      { onSuccess: (created) => selectNode(created.id) },
+    );
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (showHealthBody) return;
+    if (showHealthBody || dragState) return;
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.closest('[data-mind-node]')) return;
@@ -263,13 +684,18 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
       if (!target) return;
 
       setUploading(true);
+      setDropHint(null);
       try {
-        await onUploadFiles(files, target);
+        const mode = await handleFileDrop(files, target, onAiImportFile, onUploadFiles);
+        if (mode === 'unsupported') {
+          setDropHint(AI_IMPORT_UNSUPPORTED_HINT);
+          window.setTimeout(() => setDropHint(null), 4000);
+        }
       } finally {
         setUploading(false);
       }
     },
-    [onUploadFiles, resolveDropTarget],
+    [onAiImportFile, onUploadFiles, resolveDropTarget],
   );
 
   return (
@@ -352,24 +778,35 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
               height: layout.height,
             }}
           >
-            <svg
-              className="pointer-events-none absolute inset-0"
+            <MindMapEdges
               width={layout.width}
               height={layout.height}
-            >
-              {layout.edges.map((edge) => (
-                <path
-                  key={`${edge.fromId}-${edge.toId}`}
-                  d={curvedEdgePath(edge.x1, edge.y1, edge.x2, edge.y2)}
-                  fill="none"
-                  stroke="var(--color-border)"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                />
-              ))}
-            </svg>
+              edges={layout.edges}
+            />
 
-            {layout.nodes.map(({ id, node, x, y }) => (
+            {dragState && dropTarget && draggedNode && (
+              <motion.div
+                className="absolute rounded-2xl border-2 border-dashed border-[var(--color-accent)]/50 bg-[var(--color-accent-soft)]/40"
+                style={{
+                  left: insertionPlaceholderX(dropTarget.parentId, layout.nodes),
+                  top: insertionPlaceholderY(
+                    dropTarget.parentId,
+                    dropTarget.sortIndex,
+                    layout.nodes,
+                    dragState.nodeId,
+                  ),
+                  width: NODE_WIDTH,
+                  height: SUGGESTION_SLOT_HEIGHT,
+                }}
+                layout
+                transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+              />
+            )}
+
+            {layout.nodes.map(({ id, node, x, y }) => {
+              if (dragState?.nodeId === id || pendingDelete?.nodeId === id) return null;
+
+              return (
               <MindMapNodeCard
                 key={id}
                 node={node}
@@ -377,54 +814,70 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
                 x={x}
                 y={y}
                 selected={selectedNodeId === id}
-                renaming={renamingNodeId === id}
+                renaming={renamingNodeId === id || isPendingNodeId(id)}
                 showMenu={contextMenu === id}
+                defaultFolderName={pendingDefaultNames[id]}
+                isDragTarget={
+                  dropTarget?.parentId === id &&
+                  draggedNode != null &&
+                  draggedNode.id !== id
+                }
                 onSelect={() => {
                   const doc = docByNode[node.id];
                   selectNode(id, doc?.id ?? null);
                 }}
-                onRename={(name) => {
-                  renameNode.mutate({ id, name });
-                  setRenamingNodeId(null);
-                }}
+                onRename={(name) => handleCommitRename(id, name)}
+                onCancelRename={() => handleCancelRename(id)}
                 onStartRename={() => setRenamingNodeId(id)}
-                onDelete={async () => {
-                  const doc = docByNode[node.id];
-                  if (doc) await deleteDocument.mutateAsync(doc.id);
-                  else if (node.type === 'FOLDER') await deleteFolder.mutateAsync(id);
-                  if (node.parentId === null) {
-                    const remaining = rootFolders.filter((r) => r.id !== id);
-                    setActiveRootId(remaining[0]?.id ?? null);
-                  }
-                  selectNode(null);
-                }}
+                onDelete={() => requestDelete(id)}
                 onContextMenu={() => setContextMenu(id)}
                 onCloseMenu={() => setContextMenu(null)}
-                onUpload={(files) => {
-                  if (docByNode[node.id]) return;
-                  onUploadFiles(files, { kind: 'folder', nodeId: node.id });
+                onUpload={async (files) => {
+                  if (isPendingNodeId(node.id) || docByNode[node.id]) return;
+                  const target = { kind: 'folder' as const, nodeId: node.id };
+                  setUploading(true);
+                  setDropHint(null);
+                  try {
+                    const mode = await handleFileDrop(files, target, onAiImportFile, onUploadFiles);
+                    if (mode === 'unsupported') {
+                      setDropHint(AI_IMPORT_UNSUPPORTED_HINT);
+                      window.setTimeout(() => setDropHint(null), 4000);
+                    }
+                  } finally {
+                    setUploading(false);
+                  }
                 }}
-              />
-            ))}
-
-            {layout.suggestions.map(({ suggestion, x, y }) => (
-              <button
-                key={suggestion.key}
-                type="button"
-                data-mind-node
-                style={{ left: x, top: y, width: NODE_WIDTH, height: SUGGESTION_HEIGHT }}
-                className={cn(
-                  'absolute flex items-center justify-center rounded-2xl border-2 border-dashed',
-                  'border-[var(--color-accent)]/50 bg-[var(--color-accent-soft)]/40',
-                  'text-sm text-[var(--color-accent)] transition hover:bg-[var(--color-accent-soft)]',
-                )}
-                onClick={() =>
-                  handleCreateSuggestion(suggestion.parentId, suggestion.label)
+                onStartDrag={(clientX, clientY) => startNodeDrag(id, clientX, clientY)}
+                onAddChild={
+                  node.type === 'FOLDER' && !isPendingNodeId(id)
+                    ? () => startChildFolder(id)
+                    : undefined
                 }
-              >
-                {suggestion.label}
-              </button>
-            ))}
+              />
+              );
+            })}
+
+            {dragState && draggedNode && !pendingDelete && (
+              <MindMapNodeCard
+                node={draggedNode}
+                document={docByNode[draggedNode.id]}
+                x={dragState.canvasX}
+                y={dragState.canvasY}
+                selected
+                renaming={false}
+                showMenu={false}
+                isDragging
+                onSelect={() => {}}
+                onRename={() => {}}
+                onStartRename={() => {}}
+                onDelete={() => {}}
+                onContextMenu={() => {}}
+                onCloseMenu={() => {}}
+                onUpload={() => {}}
+                onStartDrag={() => {}}
+                onCancelRename={() => {}}
+              />
+            )}
 
             {displayTree.length === 0 && onboarded && (
               <div
@@ -442,7 +895,15 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
           {canvasDragOver && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[var(--color-accent)]/10 backdrop-blur-[1px]">
               <div className="rounded-2xl border border-[var(--color-accent)] bg-[var(--color-surface)] px-6 py-4 text-sm shadow-lg">
-                Отпустите, чтобы загрузить в «{dropTargetLabel}»
+                Отпустите для AI-импорта в «{dropTargetLabel}»
+              </div>
+            </div>
+          )}
+
+          {dropHint && (
+            <div className="pointer-events-none absolute bottom-24 left-1/2 z-40 -translate-x-1/2">
+              <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900 shadow-lg dark:border-amber-800 dark:bg-amber-950/80 dark:text-amber-200">
+                {dropHint}
               </div>
             </div>
           )}
@@ -454,16 +915,45 @@ export function MindMapCanvas({ onUploadFiles }: MindMapCanvasProps) {
               </div>
             </div>
           )}
+
+          <MindMapTrashZone
+            trashRef={trashRef}
+            active={dragToTrash}
+            denied={trashDenied}
+          />
+
+          {pendingDelete && (
+            <MindMapDeleteFly
+              node={pendingDelete.node}
+              startLeft={pendingDelete.startLeft}
+              startTop={pendingDelete.startTop}
+              startWidth={pendingDelete.startWidth}
+              startHeight={pendingDelete.startHeight}
+              targetLeft={pendingDelete.targetLeft}
+              targetTop={pendingDelete.targetTop}
+              onComplete={handleDeleteFlyComplete}
+            />
+          )}
         </div>
 
         <div className="border-t border-[var(--color-border)] px-4 py-2 text-xs text-[var(--color-muted)]">
-          Перетаскивайте файлы на холст или на папку · Колёсико — масштаб
+          Наведите на папку и нажмите + для новой ветки · В корзину — удалить · Колёсико — масштаб
         </div>
         </>
         )}
       </div>
     </>
   );
+}
+
+function getSiblingIndex(
+  roots: TreeNode[],
+  nodeId: string,
+  parentId: string | null,
+): number {
+  const siblings =
+    parentId === null ? roots : (findNode(roots, parentId)?.children ?? []);
+  return siblings.findIndex((n) => n.id === nodeId);
 }
 
 function resolvePresetId(
@@ -588,44 +1078,96 @@ interface MindMapNodeCardProps {
   selected: boolean;
   renaming: boolean;
   showMenu: boolean;
+  isDragging?: boolean;
+  isDragTarget?: boolean;
   onSelect: () => void;
   onRename: (name: string) => void;
+  onCancelRename: () => void;
   onStartRename: () => void;
   onDelete: () => void;
   onContextMenu: () => void;
   onCloseMenu: () => void;
   onUpload: (files: File[]) => void;
+  onStartDrag: (clientX: number, clientY: number) => void;
+  onAddChild?: () => void;
+  defaultFolderName?: string;
 }
 
 function MindMapNodeCard({
   node,
-  document,
+  document: _document,
   x,
   y,
   selected,
   renaming,
   showMenu,
+  isDragging = false,
+  isDragTarget = false,
   onSelect,
   onRename,
+  onCancelRename,
   onStartRename,
   onDelete,
   onContextMenu,
   onCloseMenu,
   onUpload,
+  onStartDrag,
+  onAddChild,
+  defaultFolderName,
 }: MindMapNodeCardProps) {
-  const [name, setName] = useState(node.name);
   const isFolder = node.type === 'FOLDER';
+  const isPending = isPendingNodeId(node.id);
+  const isEditing = renaming || isPending;
+  const [name, setName] = useState(node.name);
   const [dragOver, setDragOver] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const committedRef = useRef(false);
+
+  useEffect(() => {
+    setName(node.name);
+  }, [node.name]);
+
+  useEffect(() => {
+    if (!isEditing) return;
+    committedRef.current = false;
+    const input = inputRef.current;
+    if (!input) return;
+    input.focus();
+    if (!isPending) {
+      input.select();
+    }
+  }, [isEditing, node.id, isPending]);
+
+  const placeholderName = defaultFolderName ?? 'Новая папка';
+
+  const commitRename = () => {
+    if (committedRef.current) return;
+    committedRef.current = true;
+    onRename(name);
+  };
 
   return (
     <motion.div
       data-mind-node
+      layout={!isDragging}
       initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      style={{ left: x, top: y, width: NODE_WIDTH, height: NODE_HEIGHT }}
+      animate={{
+        opacity: isDragging ? 0.95 : 1,
+        scale: isDragging ? 1.03 : 1,
+      }}
+      transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+      style={{
+        left: x,
+        top: y,
+        width: NODE_WIDTH,
+        height: NODE_HEIGHT,
+        zIndex: isDragging ? 40 : isEditing ? 35 : undefined,
+      }}
       className={cn(
         'absolute group',
         dragOver && 'drop-active',
+        isDragging && 'pointer-events-none shadow-xl ring-2 ring-[var(--color-accent)]/40',
+        isDragTarget && 'ring-2 ring-[var(--color-accent)]/30',
       )}
       onDragOver={(e) => {
         e.preventDefault();
@@ -640,6 +1182,27 @@ function MindMapNodeCard({
         onUpload(Array.from(e.dataTransfer.files));
       }}
     >
+      {onAddChild && (
+        <div
+          className="absolute top-[18px] left-full z-20 flex items-center opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+          style={{ pointerEvents: 'none' }}
+        >
+          <div className="h-px w-7 origin-left -rotate-[18deg] bg-[var(--color-border)]" />
+          <button
+            type="button"
+            title="Новая ветка"
+            className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-accent)] shadow-md transition hover:scale-105 hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-soft)]"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddChild();
+            }}
+          >
+            <FolderPlus size={15} />
+          </button>
+        </div>
+      )}
+
       <div
         className={cn(
           'flex h-full items-center gap-2 rounded-2xl border px-3 shadow-sm transition',
@@ -647,45 +1210,81 @@ function MindMapNodeCard({
             ? 'border-[var(--color-border)] bg-[var(--color-surface)]'
             : 'border-[var(--color-border)] bg-[var(--color-surface-2)]',
           selected && 'border-[var(--color-accent)] ring-2 ring-[var(--color-accent)]/25',
+          isPending && 'border-[var(--color-accent)] ring-2 ring-[var(--color-accent)]/20',
           node.parentId === null && isFolder && 'rounded-full px-5',
         )}
       >
         <button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-          onClick={onSelect}
+          className="shrink-0 rounded p-0.5 text-[var(--color-muted)] opacity-0 transition hover:bg-[var(--color-surface-2)] group-hover:opacity-100"
+          title="Перетащить"
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            onStartDrag(e.clientX, e.clientY);
+          }}
         >
+          <GripVertical size={14} />
+        </button>
+
+        <div className="flex min-w-0 flex-1 items-center gap-2">
           {isFolder ? (
             <Folder size={16} className="shrink-0 text-[var(--color-accent)]" />
           ) : (
             <FileText size={16} className="shrink-0 text-[var(--color-muted)]" />
           )}
-          {renaming ? (
-            <input
-              autoFocus
-              className="w-full rounded border border-[var(--color-border)] bg-transparent px-1 text-sm"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onBlur={() => onRename(name)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') onRename(name);
-              }}
-            />
+          {isEditing ? (
+            <div className="relative min-w-0 flex-1">
+              {!name.trim() && (
+                <span
+                  className="pointer-events-none absolute inset-0 truncate px-1 text-sm text-[var(--color-muted)]/55"
+                  aria-hidden
+                >
+                  {placeholderName}
+                </span>
+              )}
+              <input
+                ref={inputRef}
+                className="relative z-[1] w-full rounded border border-[var(--color-accent)]/40 bg-transparent px-1 text-sm outline-none ring-2 ring-[var(--color-accent)]/15"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onBlur={commitRename}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    commitRename();
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    committedRef.current = true;
+                    onCancelRename();
+                  }
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
           ) : (
-            <span className="truncate text-sm font-medium">{node.name}</span>
+            <button
+              type="button"
+              className="min-w-0 flex-1 truncate text-left text-sm font-medium"
+              onClick={onSelect}
+            >
+              {node.name}
+            </button>
           )}
-        </button>
+        </div>
 
-        <button
-          type="button"
-          className="rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-[var(--color-surface-2)]"
-          onClick={onContextMenu}
-        >
-          <MoreHorizontal size={14} />
-        </button>
+        {!isEditing && (
+          <button
+            type="button"
+            className="rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-[var(--color-surface-2)]"
+            onClick={onContextMenu}
+          >
+            <MoreHorizontal size={14} />
+          </button>
+        )}
       </div>
 
-      {showMenu && (
+      {showMenu && !isEditing && (
         <div className="absolute left-0 top-full z-30 mt-1 min-w-[150px] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-xl">
           <button
             type="button"
