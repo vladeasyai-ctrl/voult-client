@@ -125,7 +125,7 @@ export function insertionPlaceholderY(
   sortIndex: number,
   positioned: PositionedNode[],
   draggedId: string,
-): number | null {
+): number {
   const siblings = positioned
     .filter((p) => p.node.parentId === parentId && p.id !== draggedId)
     .sort((a, b) => a.y - b.y);

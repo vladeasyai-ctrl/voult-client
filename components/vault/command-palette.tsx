@@ -81,10 +81,13 @@ export function CommandPalette() {
               icon={FilePlus}
               label="Создать документ"
               onSelect={() => {
-                const name = prompt('Название документа');
-                if (name) {
-                  api.createDocument(name, selectedFolderId).then(() => setOpen(false));
-                }
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.onchange = async () => {
+                  await uploadToTarget(Array.from(input.files ?? []));
+                  setOpen(false);
+                };
+                input.click();
               }}
             />
             <PaletteItem

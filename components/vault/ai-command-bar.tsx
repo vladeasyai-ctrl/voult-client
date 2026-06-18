@@ -43,7 +43,7 @@ export function AiCommandBar() {
   return (
     <>
       <div className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-surface)]/95 px-4 py-3 backdrop-blur-md">
-        {state === 'confirm' && pendingPlan && (
+        {(state === 'confirm' || state === 'executing') && pendingPlan && (
           <div className="mb-3 flex items-start gap-3 rounded-2xl border border-[var(--color-accent)]/30 bg-[var(--color-accent-soft)]/50 px-4 py-3">
             <Sparkles size={16} className="mt-0.5 shrink-0 text-[var(--color-accent)]" />
             <div className="min-w-0 flex-1 text-sm">

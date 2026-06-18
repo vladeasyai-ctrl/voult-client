@@ -603,12 +603,10 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
     [canvas.scale, setCanvas],
   );
 
-  const handleCreateHealthFolder = (name: string) => {
+  const handleCreateHealthFolder = async (name: string) => {
     if (!activeRoot) return;
-    createFolder.mutate(
-      { name, parentId: activeRoot.id },
-      { onSuccess: (created) => selectNode(created.id) },
-    );
+    const created = await createFolder.mutateAsync({ name, parentId: activeRoot.id });
+    selectNode(created.id);
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
