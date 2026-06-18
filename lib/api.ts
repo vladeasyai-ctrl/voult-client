@@ -60,6 +60,12 @@ export const api = {
       body: JSON.stringify({ username, email, password }),
     }),
 
+  loginWithGoogle: (idToken: string) =>
+    request<AuthResponse>('/api/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ idToken }),
+    }),
+
   getTree: () => request<TreeNode[]>('/api/nodes/tree'),
 
   createFolder: (name: string, parentId: string | null) =>

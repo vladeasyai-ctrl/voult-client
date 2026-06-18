@@ -1,6 +1,7 @@
 'use client';
 
 import { useMutation } from '@tanstack/react-query';
+import { GoogleLogin, GoogleOAuthProvider } from '@react-oauth/google';
 import { motion } from 'framer-motion';
 import { Lock, Sparkles } from 'lucide-react';
 import Link from 'next/link';
@@ -10,7 +11,9 @@ import { api } from '@/lib/api';
 import { setToken } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 
-export default function LoginPage() {
+const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? '';
+
+function LoginForm() {
   const router = useRouter();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
@@ -18,15 +21,23 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
+  const completeAuth = (accessToken: string) => {
+    setToken(accessToken);
+    router.push('/vault');
+  };
+
   const auth = useMutation({
     mutationFn: async () => {
       if (mode === 'login') return api.login(username, password);
       return api.register(username, email, password);
     },
-    onSuccess: (data) => {
-      setToken(data.accessToken);
-      router.push('/vault');
-    },
+    onSuccess: (data) => completeAuth(data.accessToken),
+    onError: (e: Error) => setError(e.message),
+  });
+
+  const googleAuth = useMutation({
+    mutationFn: (idToken: string) => api.loginWithGoogle(idToken),
+    onSuccess: (data) => completeAuth(data.accessToken),
     onError: (e: Error) => setError(e.message),
   });
 
@@ -65,6 +76,34 @@ export default function LoginPage() {
           ))}
         </div>
 
+        {googleClientId && (
+          <div className="mb-6 space-y-4">
+            <div className="flex justify-center [&>div]:w-full">
+              <GoogleLogin
+                onSuccess={(response) => {
+                  setError('');
+                  if (!response.credential) {
+                    setError('Google не вернул токен авторизации');
+                    return;
+                  }
+                  googleAuth.mutate(response.credential);
+                }}
+                onError={() => setError('Не удалось войти через Google')}
+                theme="outline"
+                size="large"
+                width="100%"
+                text="continue_with"
+                locale="ru"
+              />
+            </div>
+            <div className="flex items-center gap-3 text-xs text-[var(--color-muted)]">
+              <span className="h-px flex-1 bg-[var(--color-border)]" />
+              или
+              <span className="h-px flex-1 bg-[var(--color-border)]" />
+            </div>
+          </div>
+        )}
+
         <form
           className="space-y-4"
           onSubmit={(e) => {
@@ -101,7 +140,7 @@ export default function LoginPage() {
           {error && <p className="text-sm text-red-500">{error}</p>}
           <button
             type="submit"
-            disabled={auth.isPending}
+            disabled={auth.isPending || googleAuth.isPending}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--color-accent)] px-4 py-3 text-white transition hover:opacity-90 disabled:opacity-60"
           >
             <Sparkles size={16} />
@@ -116,5 +155,17 @@ export default function LoginPage() {
         </p>
       </motion.div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  if (!googleClientId) {
+    return <LoginForm />;
+  }
+
+  return (
+    <GoogleOAuthProvider clientId={googleClientId}>
+      <LoginForm />
+    </GoogleOAuthProvider>
   );
 }
