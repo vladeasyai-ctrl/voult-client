@@ -1,5 +1,26 @@
 import type { TreeNode } from './types';
 
+function compareTreeSiblings(a: TreeNode, b: TreeNode): number {
+  if (a.type !== b.type) {
+    return a.type === 'FOLDER' ? -1 : 1;
+  }
+
+  const createdDiff = Date.parse(a.createdAt) - Date.parse(b.createdAt);
+  if (createdDiff !== 0) return createdDiff;
+
+  return a.id.localeCompare(b.id);
+}
+
+/** Folders first (oldest first), then files (oldest first). Tree layout only. */
+export function sortTreeChildrenForDisplay(nodes: TreeNode[]): TreeNode[] {
+  return [...nodes]
+    .sort(compareTreeSiblings)
+    .map((node) => ({
+      ...node,
+      children: sortTreeChildrenForDisplay(node.children),
+    }));
+}
+
 export function flattenTree(nodes: TreeNode[]): TreeNode[] {
   const result: TreeNode[] = [];
   const walk = (list: TreeNode[]) => {

@@ -3,6 +3,7 @@ import {
   DEFAULT_NODE_HEIGHT,
   DEFAULT_NODE_WIDTH,
   readMindMapNodeDims,
+  resolveMindMapNodeWidth,
 } from './mind-map-node-theme';
 
 /** @deprecated Use CSS `--mind-map-node-width` or `readMindMapNodeDims()`. */
@@ -25,6 +26,7 @@ export interface PositionedNode {
   x: number;
   y: number;
   depth: number;
+  width: number;
 }
 
 export interface MindMapEdge {
@@ -42,6 +44,10 @@ export interface MindMapLayout {
   width: number;
   height: number;
   edges: MindMapEdge[];
+}
+
+export function nodeLayoutWidth(node: TreeNode): number {
+  return resolveMindMapNodeWidth(node.name, node.type === 'FOLDER');
 }
 
 export function curvedEdgePath(x1: number, y1: number, x2: number, y2: number) {
@@ -64,20 +70,21 @@ function subtreeHeight(node: TreeNode): number {
 
 function layoutNode(
   node: TreeNode,
-  depth: number,
+  x: number,
   yOffset: number,
   result: PositionedNode[],
 ): number {
-  const x = depth * (activeDims.width + HORIZONTAL_GAP);
+  const width = nodeLayoutWidth(node);
   const totalH = subtreeHeight(node);
   const y = yOffset + totalH / 2 - activeDims.height / 2;
 
-  result.push({ id: node.id, node, x, y, depth });
+  result.push({ id: node.id, node, x, y, depth: 0, width });
 
   let childY = yOffset;
+  const childX = x + width + HORIZONTAL_GAP;
   for (const child of node.children) {
     const childH = subtreeHeight(child);
-    layoutNode(child, depth + 1, childY, result);
+    layoutNode(child, childX, childY, result);
     childY += childH + VERTICAL_GAP;
   }
 
@@ -96,7 +103,7 @@ function buildEdges(nodes: PositionedNode[]): MindMapEdge[] {
       edges.push({
         fromId: positioned.id,
         toId: child.id,
-        x1: positioned.x + activeDims.width,
+        x1: positioned.x + positioned.width,
         y1: positioned.y + activeDims.height / 2,
         x2: childPos.x,
         y2: childPos.y + activeDims.height / 2,
@@ -117,25 +124,26 @@ export function buildMindMapLayout(roots: TreeNode[]): MindMapLayout {
   const nodes: PositionedNode[] = [];
   let yCursor = 80;
   const rootGap = 120;
+  const rootX = 80;
 
   for (const root of roots) {
-    const h = layoutNode(root, 0, yCursor, nodes);
+    const h = layoutNode(root, rootX, yCursor, nodes);
     yCursor += h + rootGap;
   }
 
   const edges = buildEdges(nodes);
-  const maxX = Math.max(...nodes.map((n) => n.x + activeDims.width), 800);
+  const maxX = Math.max(...nodes.map((n) => n.x + n.width), 800);
   const maxY = Math.max(...nodes.map((n) => n.y + activeDims.height), 600);
 
   return { nodes, edges, width: maxX + 120, height: maxY + 120 };
 }
 
-export function sproutAnchor(x: number, y: number) {
+export function sproutAnchor(x: number, y: number, width = activeDims.width) {
   return {
-    stemX1: x + activeDims.width,
+    stemX1: x + width,
     stemY: y + activeDims.height / 2,
-    stemX2: x + activeDims.width + 28,
-    buttonX: x + activeDims.width + 28,
+    stemX2: x + width + 28,
+    buttonX: x + width + 28,
     buttonY: y + activeDims.height / 2,
   };
 }

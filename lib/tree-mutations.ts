@@ -98,10 +98,11 @@ export function mergePendingIntoTree(
   return merged;
 }
 
-export function createPendingFolder(parentId: string | null): TreeNode {
+export function createPendingFolder(spaceId: string, parentId: string | null): TreeNode {
   const now = new Date().toISOString();
   return {
     id: `pending-${crypto.randomUUID()}`,
+    spaceId,
     parentId,
     name: '',
     type: 'FOLDER',

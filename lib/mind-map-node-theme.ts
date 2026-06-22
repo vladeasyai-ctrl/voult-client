@@ -8,6 +8,7 @@ export const DEFAULT_NODE_WIDTH = 196;
 export const DEFAULT_NODE_HEIGHT = 60;
 export const DEFAULT_NODE_FONT_SIZE = '1.75rem';
 export const DEFAULT_NODE_PADDING = '14px';
+export const MAX_NODE_NAME_LENGTH = 64;
 
 export interface MindMapNodeDims {
   width: number;
@@ -43,4 +44,66 @@ export function getMindMapNodeWidth(): number {
 
 export function getMindMapNodeHeight(): number {
   return readMindMapNodeDims().height;
+}
+
+function lengthToPx(value: string): number {
+  const n = parseFloat(value);
+  if (!Number.isFinite(n)) return 0;
+  if (value.endsWith('rem')) return n * 16;
+  if (value.endsWith('px')) return n;
+  return n;
+}
+
+function readMindMapFontFamily(): string {
+  if (typeof document === 'undefined') return 'DM Sans, ui-sans-serif, system-ui, sans-serif';
+  const family = getComputedStyle(document.documentElement)
+    .getPropertyValue('--font-sans')
+    .trim();
+  return family || 'DM Sans, ui-sans-serif, system-ui, sans-serif';
+}
+
+let measureCtx: CanvasRenderingContext2D | null = null;
+
+function measureLabelWidth(text: string, fontSize: string, fontFamily: string): number {
+  const fontSizePx = lengthToPx(fontSize);
+  const sample = text || ' ';
+
+  if (typeof document !== 'undefined') {
+    if (!measureCtx) {
+      const canvas = document.createElement('canvas');
+      measureCtx = canvas.getContext('2d');
+    }
+    if (measureCtx) {
+      measureCtx.font = `500 ${fontSizePx}px ${fontFamily}`;
+      return measureCtx.measureText(sample).width;
+    }
+  }
+
+  return sample.length * fontSizePx * 0.52;
+}
+
+/** Minimum box width from CSS; grows with label up to ~64 characters. */
+export function resolveMindMapNodeWidth(name: string, isFolder: boolean): number {
+  const dims = readMindMapNodeDims();
+  const minWidth = dims.width;
+  const fontFamily = readMindMapFontFamily();
+  const horizontalPadding = lengthToPx(dims.padding) * 2;
+  const iconBlock = isFolder ? 32 + 8 : 32 + 4;
+  const gripReserve = 14;
+
+  const label = name.slice(0, MAX_NODE_NAME_LENGTH);
+  const labelWidth = measureLabelWidth(label, dims.fontSize, fontFamily);
+  const maxLabelWidth = measureLabelWidth(
+    'M'.repeat(MAX_NODE_NAME_LENGTH),
+    dims.fontSize,
+    fontFamily,
+  );
+
+  const contentWidth = iconBlock + gripReserve + labelWidth;
+  const maxContentWidth = iconBlock + gripReserve + maxLabelWidth;
+
+  const resolved = Math.ceil(horizontalPadding + contentWidth);
+  const maxWidth = Math.ceil(horizontalPadding + maxContentWidth);
+
+  return Math.min(maxWidth, Math.max(minWidth, resolved));
 }

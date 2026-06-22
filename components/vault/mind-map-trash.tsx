@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { Folder, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { t } from '@/lib/i18n';
-import { getMindMapNodeHeight, getMindMapNodeWidth } from '@/lib/mind-map-node-theme';
+import { getMindMapNodeHeight } from '@/lib/mind-map-node-theme';
 import type { TreeNode } from '@/lib/types';
 import { FileTypeIcon } from '@/components/ui/file-type-icon';
 
@@ -106,7 +106,7 @@ export function MindMapDeleteFly({
 
 export function nodeViewportBox(
   nodeId: string,
-  layoutNodes: Array<{ id: string; x: number; y: number }>,
+  layoutNodes: Array<{ id: string; x: number; y: number; width: number }>,
   canvas: { x: number; y: number; scale: number },
 ): { left: number; top: number; width: number; height: number } | null {
   const positioned = layoutNodes.find((n) => n.id === nodeId);
@@ -115,7 +115,7 @@ export function nodeViewportBox(
   return {
     left: canvas.x + positioned.x * canvas.scale,
     top: canvas.y + positioned.y * canvas.scale,
-    width: getMindMapNodeWidth() * canvas.scale,
+    width: positioned.width * canvas.scale,
     height: getMindMapNodeHeight() * canvas.scale,
   };
 }

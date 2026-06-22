@@ -9,16 +9,39 @@ export function useVaultData() {
   const queryClient = useQueryClient();
   const applyOrderedTree = useVaultStore((s) => s.applyOrderedTree);
   const setDocuments = useVaultStore((s) => s.setDocuments);
+  const setSpaces = useVaultStore((s) => s.setSpaces);
+  const activeSpaceId = useVaultStore((s) => s.activeSpaceId);
+  const setActiveSpaceId = useVaultStore((s) => s.setActiveSpaceId);
+
+  const spacesQuery = useQuery({
+    queryKey: ['spaces'],
+    queryFn: api.getSpaces,
+  });
 
   const treeQuery = useQuery({
-    queryKey: ['tree'],
-    queryFn: api.getTree,
+    queryKey: ['space-tree', activeSpaceId],
+    queryFn: () => api.getSpaceTree(activeSpaceId!),
+    enabled: Boolean(activeSpaceId),
   });
 
   const docsQuery = useQuery({
     queryKey: ['documents'],
     queryFn: api.getDocuments,
   });
+
+  useEffect(() => {
+    if (!spacesQuery.data) return;
+    setSpaces(spacesQuery.data);
+    if (
+      spacesQuery.data.length > 0 &&
+      (!activeSpaceId || !spacesQuery.data.some((space) => space.id === activeSpaceId))
+    ) {
+      setActiveSpaceId(spacesQuery.data[0].id);
+    }
+    if (spacesQuery.data.length === 0 && activeSpaceId) {
+      setActiveSpaceId(null);
+    }
+  }, [spacesQuery.data, activeSpaceId, setSpaces, setActiveSpaceId]);
 
   useEffect(() => {
     if (treeQuery.data) applyOrderedTree(treeQuery.data);
@@ -30,14 +53,15 @@ export function useVaultData() {
 
   const refresh = useCallback(async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['tree'] }),
+      queryClient.invalidateQueries({ queryKey: ['spaces'] }),
+      queryClient.invalidateQueries({ queryKey: ['space-tree'] }),
       queryClient.invalidateQueries({ queryKey: ['documents'] }),
     ]);
   }, [queryClient]);
 
   return {
     refresh,
-    isLoading: treeQuery.isLoading || docsQuery.isLoading,
+    isLoading: spacesQuery.isLoading || treeQuery.isLoading || docsQuery.isLoading,
   };
 }
 
@@ -45,22 +69,26 @@ export function useVaultMutations() {
   const queryClient = useQueryClient();
 
   const reconcileTree = () => {
-    queryClient.invalidateQueries({ queryKey: ['tree'] });
+    queryClient.invalidateQueries({ queryKey: ['space-tree'] });
+    queryClient.invalidateQueries({ queryKey: ['spaces'] });
   };
 
   const createFolder = useMutation({
     mutationFn: ({
       name,
+      spaceId,
       parentId,
     }: {
       name: string;
+      spaceId: string;
       parentId: string | null;
       tempId?: string;
-    }) => api.createFolder(name, parentId),
+    }) => api.createFolder(name, spaceId, parentId),
     onSuccess: (data, variables) => {
       if (variables.tempId) {
         useVaultStore.getState().confirmPendingFolder(variables.tempId, {
           id: data.id,
+          spaceId: data.spaceId,
           name: data.name,
           parentId: data.parentId,
           type: 'FOLDER',

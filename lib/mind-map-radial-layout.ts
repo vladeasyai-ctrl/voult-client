@@ -1,4 +1,5 @@
 import type { MindMapEdge, MindMapLayout, PositionedNode } from './mind-map-layout';
+import { nodeLayoutWidth } from './mind-map-layout';
 import { readMindMapNodeDims } from './mind-map-node-theme';
 import type { TreeNode } from './types';
 
@@ -10,7 +11,7 @@ const CANVAS_PADDING = 80;
 interface LayoutCtx {
   nodes: PositionedNode[];
   edges: MindMapEdge[];
-  dims: { width: number; height: number };
+  height: number;
 }
 
 function edgePointOnRect(
@@ -53,13 +54,15 @@ function layoutRadialNode(
   outwardAngle: number | null,
   ctx: LayoutCtx,
 ) {
-  const { width, height } = ctx.dims;
+  const width = nodeLayoutWidth(node);
+  const height = ctx.height;
   ctx.nodes.push({
     id: node.id,
     node,
     x: cx - width / 2,
     y: cy - height / 2,
     depth,
+    width,
   });
 
   const children = node.children.slice(0, MAX_RADIAL_CHILDREN);
@@ -72,9 +75,10 @@ function layoutRadialNode(
       child.type === 'FOLDER' ? RADIAL_FOLDER_RADIUS : RADIAL_FILE_RADIUS;
     const childCx = cx + radius * Math.cos(angle);
     const childCy = cy + radius * Math.sin(angle);
+    const childWidth = nodeLayoutWidth(child);
 
     const from = edgePointOnRect(cx, cy, width, height, angle);
-    const to = edgePointOnRect(childCx, childCy, width, height, angle + Math.PI);
+    const to = edgePointOnRect(childCx, childCy, childWidth, height, angle + Math.PI);
 
     ctx.edges.push({
       fromId: node.id,
@@ -92,16 +96,17 @@ function layoutRadialNode(
       ctx.nodes.push({
         id: child.id,
         node: child,
-        x: childCx - width / 2,
+        x: childCx - childWidth / 2,
         y: childCy - height / 2,
         depth: depth + 1,
+        width: childWidth,
       });
     }
   }
 }
 
 function normalizeLayout(ctx: LayoutCtx): MindMapLayout {
-  const { nodes, edges, dims } = ctx;
+  const { nodes, edges, height } = ctx;
   if (nodes.length === 0) {
     return { nodes: [], edges: [], width: 800, height: 600 };
   }
@@ -114,8 +119,8 @@ function normalizeLayout(ctx: LayoutCtx): MindMapLayout {
   for (const n of nodes) {
     minX = Math.min(minX, n.x);
     minY = Math.min(minY, n.y);
-    maxX = Math.max(maxX, n.x + dims.width);
-    maxY = Math.max(maxY, n.y + dims.height);
+    maxX = Math.max(maxX, n.x + n.width);
+    maxY = Math.max(maxY, n.y + height);
   }
 
   const shiftX = CANVAS_PADDING - minX;
@@ -146,7 +151,7 @@ export function buildRadialMindMapLayout(roots: TreeNode[]): MindMapLayout {
     return { nodes: [], edges: [], width: 800, height: 600 };
   }
 
-  const ctx: LayoutCtx = { nodes: [], edges: [], dims };
+  const ctx: LayoutCtx = { nodes: [], edges: [], height: dims.height };
   const startCx = 500;
   let yCursor = 500;
   const rootGap = 700;

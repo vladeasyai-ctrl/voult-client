@@ -19,10 +19,11 @@ import { t } from '@/lib/i18n';
 import { en } from '@/lib/i18n/en';
 import { buildMindMapLayout } from '@/lib/mind-map-layout';
 import { buildRadialMindMapLayout } from '@/lib/mind-map-radial-layout';
-import { readMindMapNodeDims } from '@/lib/mind-map-node-theme';
+import { readMindMapNodeDims, resolveMindMapNodeWidth } from '@/lib/mind-map-node-theme';
 import { getFileTypeBorderColor } from '@/lib/file-type';
 import {
   canvasPointFromClient,
+  insertionPlaceholderWidth,
   insertionPlaceholderX,
   insertionPlaceholderY,
   resolveDragDropTarget,
@@ -33,16 +34,18 @@ import { removeFromOrderMap } from '@/lib/node-order';
 import { applyTreeMove } from '@/lib/tree-move-utils';
 import { createPendingFolder, isPendingNodeId, suggestChildFolderName } from '@/lib/tree-mutations';
 import { findPresetByRootName, type VaultPreset } from '@/lib/presets';
-import { flattenTree, findNode } from '@/lib/tree-utils';
+import { api } from '@/lib/api';
+import { flattenTree, findNode, sortTreeChildrenForDisplay } from '@/lib/tree-utils';
 import type { DropTarget, TreeNode } from '@/lib/types';
 import { AI_IMPORT_UNSUPPORTED_HINT, isAiImportFile } from '@/lib/ai-import';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useVaultData, useVaultMutations } from '@/hooks/use-vault-data';
 import { useVaultStore } from '@/stores/vault-store';
 import type { VaultLayoutMode } from '@/stores/vault-store';
 import { NameDialog } from '@/components/vault/name-dialog';
 import { FileTypeIcon } from '@/components/ui/file-type-icon';
 import { PresetPicker } from '@/components/vault/preset-picker';
-import { RootFolderMap } from '@/components/vault/root-folder-map';
+import { SpaceMap } from '@/components/vault/space-map';
 import { MindMapEdges } from '@/components/vault/mind-map-edges';
 import {
   MindMapCanvasSettingsButton,
@@ -112,8 +115,9 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
   const selectedNodeId = useVaultStore((s) => s.selectedNodeId);
   const renamingNodeId = useVaultStore((s) => s.renamingNodeId);
   const setRenamingNodeId = useVaultStore((s) => s.setRenamingNodeId);
-  const activeRootId = useVaultStore((s) => s.activeRootId);
-  const setActiveRootId = useVaultStore((s) => s.setActiveRootId);
+  const spaces = useVaultStore((s) => s.spaces);
+  const activeSpaceId = useVaultStore((s) => s.activeSpaceId);
+  const setActiveSpaceId = useVaultStore((s) => s.setActiveSpaceId);
   const layoutMode = useVaultStore((s) => s.layoutMode);
   const setLayoutMode = useVaultStore((s) => s.setLayoutMode);
   const resetCanvasView = useVaultStore((s) => s.resetCanvasView);
@@ -125,8 +129,18 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
   const renameNodeLocal = useVaultStore((s) => s.renameNodeLocal);
 
   const { isLoading } = useVaultData();
+  const queryClient = useQueryClient();
   const { createFolder, renameNode, moveNode, deleteFolder, deleteDocument, invalidate } =
     useVaultMutations();
+
+  const createSpace = useMutation({
+    mutationFn: ({ name, presetId }: { name: string; presetId?: string | null }) =>
+      api.createSpace(name, presetId),
+    onSuccess: (space) => {
+      queryClient.invalidateQueries({ queryKey: ['spaces'] });
+      setActiveSpaceId(space.id);
+    },
+  });
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [isPanning, setIsPanning] = useState(false);
@@ -136,8 +150,9 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
   const panStart = useRef({ x: 0, y: 0, canvasX: 0, canvasY: 0 });
   const [contextMenu, setContextMenu] = useState<string | null>(null);
   const [showPresetPicker, setShowPresetPicker] = useState(false);
-  const [rootNameDialogOpen, setRootNameDialogOpen] = useState(false);
-  const [showRootMap, setShowRootMap] = useState(false);
+  const [spaceNameDialogOpen, setSpaceNameDialogOpen] = useState(false);
+  const [branchNameDialogOpen, setBranchNameDialogOpen] = useState(false);
+  const [showSpaceMap, setShowSpaceMap] = useState(false);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [dropTarget, setDropTarget] = useState<DragDropTarget | null>(null);
   const [dragToTrash, setDragToTrash] = useState(false);
@@ -152,34 +167,28 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
 
   const nodeDims = readMindMapNodeDims();
 
-  const rootFolders = useMemo(
+  const activeSpace = useMemo(
+    () => spaces.find((space) => space.id === activeSpaceId) ?? null,
+    [spaces, activeSpaceId],
+  );
+
+  const rootBranches = useMemo(
     () => tree.filter((n) => n.type === 'FOLDER'),
     [tree],
   );
 
-  const activeRoot = useMemo(() => {
-    if (rootFolders.length === 0) return null;
-    if (activeRootId) {
-      const found = rootFolders.find((r) => r.id === activeRootId);
-      if (found) return found;
-    }
-    return rootFolders[0];
-  }, [rootFolders, activeRootId]);
+  const displayTree = tree;
 
-  const displayTree = useMemo(
-    () => (activeRoot ? [activeRoot] : []),
-    [activeRoot],
+  const branchCounts = useMemo(
+    () =>
+      Object.fromEntries(
+        spaces.map((space) => [
+          space.id,
+          space.id === activeSpaceId ? rootBranches.length : 0,
+        ]),
+      ),
+    [spaces, activeSpaceId, rootBranches.length],
   );
-
-  useEffect(() => {
-    if (rootFolders.length === 0) {
-      if (activeRootId) setActiveRootId(null);
-      return;
-    }
-    if (!activeRootId || !rootFolders.some((r) => r.id === activeRootId)) {
-      setActiveRootId(rootFolders[0].id);
-    }
-  }, [rootFolders, activeRootId, setActiveRootId]);
 
   const docByNode = useMemo(
     () => Object.fromEntries(documents.map((d) => [d.nodeId, d])),
@@ -191,22 +200,22 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
   useEffect(() => {
     if (isLoading) return;
 
-    if (rootFolders.length > 0) {
+    if (spaces.length > 0) {
       if (!onboarded) setOnboarded(true);
       setShowPresetPicker(false);
       return;
     }
 
-    if (!onboarded && tree.length === 0) {
+    if (!onboarded && spaces.length === 0) {
       setShowPresetPicker(true);
     }
-  }, [isLoading, onboarded, tree.length, rootFolders.length, setOnboarded]);
+  }, [isLoading, onboarded, spaces.length, setOnboarded]);
 
   const buildLayout = useCallback(
     (roots: TreeNode[]) =>
       layoutMode === 'radial'
         ? buildRadialMindMapLayout(roots)
-        : buildMindMapLayout(roots),
+        : buildMindMapLayout(sortTreeChildrenForDisplay(roots)),
     [layoutMode],
   );
 
@@ -274,12 +283,6 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
       setNodeOrder(
         removeFromOrderMap(useVaultStore.getState().nodeOrder, node.id),
       );
-      if (node.parentId === null) {
-        const remaining = useVaultStore
-          .getState()
-          .tree.filter((r) => r.type === 'FOLDER' && r.id !== node.id);
-        setActiveRootId(remaining[0]?.id ?? null);
-      }
       if (selectedNodeId === node.id) selectNode(null);
 
       const target = trashTargetInContainer(trash, container, box.width, box.height);
@@ -305,7 +308,6 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
       docByNode,
       removeNodeLocal,
       setNodeOrder,
-      setActiveRootId,
       selectedNodeId,
       selectNode,
     ],
@@ -342,7 +344,9 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
           ? {
               left: canvas.x + dragState.canvasX * canvas.scale,
               top: canvas.y + dragState.canvasY * canvas.scale,
-              width: nodeDims.width * canvas.scale,
+              width:
+                (baseLayout.nodes.find((n) => n.id === nodeId)?.width ?? nodeDims.width) *
+                canvas.scale,
               height: nodeDims.height * canvas.scale,
             }
           : null);
@@ -405,10 +409,12 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
     }
 
     if (dragToTrash) {
+      const draggedWidth =
+        baseLayout.nodes.find((n) => n.id === dragState.nodeId)?.width ?? nodeDims.width;
       const box = {
         left: canvas.x + dragState.canvasX * canvas.scale,
         top: canvas.y + dragState.canvasY * canvas.scale,
-        width: nodeDims.width * canvas.scale,
+        width: draggedWidth * canvas.scale,
         height: nodeDims.height * canvas.scale,
       };
       setDragState(null);
@@ -510,16 +516,26 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
     [baseLayout.nodes, canvas.x, canvas.y, canvas.scale, displayTree, flat],
   );
 
-  const handleAddRoot = () => {
-    setRootNameDialogOpen(true);
+  const handleAddBranch = () => {
+    if (!activeSpaceId) return;
+    setBranchNameDialogOpen(true);
   };
 
-  const handleConfirmRootName = (name: string) => {
-    createFolder.mutate(
-      { name, parentId: null },
+  const handleAddSpace = () => {
+    setSpaceNameDialogOpen(true);
+  };
+
+  const handleConfirmBranchName = (name: string) => {
+    if (!activeSpaceId) return;
+    createFolder.mutate({ name, spaceId: activeSpaceId, parentId: null });
+  };
+
+  const handleConfirmSpaceName = (name: string) => {
+    createSpace.mutate(
+      { name },
       {
-        onSuccess: (created) => {
-          setActiveRootId(created.id);
+        onSuccess: () => {
+          setOnboarded(true);
           setCanvas({ x: 0, y: 0, scale: 1 });
         },
       },
@@ -527,12 +543,11 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
   };
 
   const handlePreset = (preset: VaultPreset) => {
-    createFolder.mutate(
-      { name: preset.rootName, parentId: null },
+    createSpace.mutate(
+      { name: preset.rootName, presetId: preset.id },
       {
-        onSuccess: (created) => {
+        onSuccess: () => {
           setPresetId(preset.id);
-          setActiveRootId(created.id);
           setOnboarded(true);
           setShowPresetPicker(false);
         },
@@ -547,18 +562,19 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
 
   const startChildFolder = useCallback(
     (parentId: string) => {
+      if (!activeSpaceId) return;
       const parent = flat.find((n) => n.id === parentId);
       if (!parent || parent.type !== 'FOLDER') return;
 
       const suggested = suggestChildFolderName(parent.name, parent.children);
-      const pending = createPendingFolder(parentId);
+      const pending = createPendingFolder(activeSpaceId ?? '', parentId);
       setPendingDefaultNames((prev) => ({ ...prev, [pending.id]: suggested }));
       addPendingFolder(parentId, pending);
       setRenamingNodeId(pending.id);
       selectNode(pending.id);
       setContextMenu(null);
     },
-    [flat, addPendingFolder, selectNode, setRenamingNodeId],
+    [activeSpaceId, flat, addPendingFolder, selectNode, setRenamingNodeId],
   );
 
   const clearPendingDefaultName = useCallback((nodeId: string) => {
@@ -592,6 +608,7 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
         selectNode(nodeId);
         createFolder.mutate({
           name: finalName,
+          spaceId: node.spaceId,
           parentId: node.parentId,
           tempId: nodeId,
         });
@@ -693,11 +710,11 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
         return { kind: 'folder', nodeId: selected.id };
       }
     }
-    if (activeRoot) {
-      return { kind: 'folder', nodeId: activeRoot.id };
+    if (rootBranches.length > 0) {
+      return { kind: 'folder', nodeId: rootBranches[0].id };
     }
     return { kind: 'content', folderId: null };
-  }, [activeRoot, flat, selectedNodeId]);
+  }, [rootBranches, flat, selectedNodeId]);
 
   const dropTargetLabel = useMemo(() => {
     const target = resolveDropTarget();
@@ -752,45 +769,59 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
       )}
 
       <NameDialog
-        open={rootNameDialogOpen}
-        onClose={() => setRootNameDialogOpen(false)}
-        onConfirm={handleConfirmRootName}
-        title={t('vault.rootBranchTitle')}
-        description={t('vault.rootBranchDescription')}
-        placeholder={t('vault.rootBranchPlaceholder')}
+        open={spaceNameDialogOpen}
+        onClose={() => setSpaceNameDialogOpen(false)}
+        onConfirm={handleConfirmSpaceName}
+        title={t('vault.spaceTitle')}
+        description={t('vault.spaceDescription')}
+        placeholder={t('vault.spacePlaceholder')}
         suggestions={[...en.vault.rootBranchSuggestions]}
-        existingNames={rootFolders.map((r) => r.name)}
+        existingNames={spaces.map((space) => space.name)}
         checkDuplicates
       />
 
-      {showRootMap && (
-        <RootFolderMap
-          roots={rootFolders}
-          activeRootId={activeRoot?.id ?? null}
-          onSelect={(rootId) => {
-            setActiveRootId(rootId);
+      <NameDialog
+        open={branchNameDialogOpen}
+        onClose={() => setBranchNameDialogOpen(false)}
+        onConfirm={handleConfirmBranchName}
+        title={t('vault.branchTitle')}
+        description={t('vault.branchDescription')}
+        placeholder={t('vault.branchPlaceholder')}
+        suggestions={[...en.vault.rootBranchSuggestions]}
+        existingNames={rootBranches.map((branch) => branch.name)}
+        checkDuplicates
+      />
+
+      {showSpaceMap && (
+        <SpaceMap
+          spaces={spaces}
+          activeSpaceId={activeSpaceId}
+          branchCounts={branchCounts}
+          onSelect={(spaceId) => {
+            setActiveSpaceId(spaceId);
             setCanvas({ x: 0, y: 0, scale: 1 });
             selectNode(null);
-            setShowRootMap(false);
+            setShowSpaceMap(false);
           }}
-          onAddRoot={() => {
-            setShowRootMap(false);
-            handleAddRoot();
+          onAddSpace={() => {
+            setShowSpaceMap(false);
+            handleAddSpace();
           }}
-          onClose={() => setShowRootMap(false)}
+          onClose={() => setShowSpaceMap(false)}
         />
       )}
 
       <div className="relative flex h-full flex-col overflow-hidden bg-[var(--color-canvas)]">
         <CanvasToolbar
-          activeRootName={activeRoot?.name}
-          rootCount={rootFolders.length}
+          activeSpaceName={activeSpace?.name}
+          branchCount={rootBranches.length}
           layoutMode={layoutMode}
           onToggleLayoutMode={() =>
             setLayoutMode(layoutMode === 'tree' ? 'radial' : 'tree')
           }
-          onOpenMap={() => setShowRootMap(true)}
-          onAddRoot={handleAddRoot}
+          onOpenMap={() => setShowSpaceMap(true)}
+          onAddBranch={handleAddBranch}
+          addBranchDisabled={!activeSpaceId}
         />
 
         <div
@@ -839,7 +870,11 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
                     layout.nodes,
                     dragState.nodeId,
                   ),
-                  width: nodeDims.width,
+                  width: insertionPlaceholderWidth(
+                    dropTarget.parentId,
+                    dropTarget.sortIndex,
+                    layout.nodes,
+                  ),
                   height: SUGGESTION_SLOT_HEIGHT,
                 }}
                 layout
@@ -847,7 +882,7 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
               />
             )}
 
-            {layout.nodes.map(({ id, node, x, y }) => {
+            {layout.nodes.map(({ id, node, x, y, width: layoutWidth }) => {
               if (dragState?.nodeId === id || pendingDelete?.nodeId === id) return null;
 
               return (
@@ -857,6 +892,7 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
                 document={docByNode[node.id]}
                 x={x}
                 y={y}
+                layoutWidth={layoutWidth}
                 selected={selectedNodeId === id}
                 renaming={renamingNodeId === id || isPendingNodeId(id)}
                 showMenu={contextMenu === id}
@@ -907,6 +943,10 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
                 document={docByNode[draggedNode.id]}
                 x={dragState.canvasX}
                 y={dragState.canvasY}
+                layoutWidth={
+                  baseLayout.nodes.find((n) => n.id === draggedNode.id)?.width ??
+                  resolveMindMapNodeWidth(draggedNode.name, draggedNode.type === 'FOLDER')
+                }
                 selected
                 renaming={false}
                 showMenu={false}
@@ -1019,8 +1059,10 @@ function resolvePresetId(
   node: TreeNode,
   roots: TreeNode[],
   storedPresetId: string | null,
+  spacePresetId: string | null,
 ): string | null {
   if (storedPresetId) return storedPresetId;
+  if (spacePresetId) return spacePresetId;
   const flat = flattenTree(roots);
   let current: TreeNode | undefined = node;
   while (current?.parentId) {
@@ -1031,46 +1073,47 @@ function resolvePresetId(
 }
 
 function CanvasToolbar({
-  activeRootName,
-  rootCount,
+  activeSpaceName,
+  branchCount,
   layoutMode,
   onToggleLayoutMode,
   onOpenMap,
-  onAddRoot,
+  onAddBranch,
+  addBranchDisabled,
 }: {
-  activeRootName?: string;
-  rootCount: number;
+  activeSpaceName?: string;
+  branchCount: number;
   layoutMode: VaultLayoutMode;
   onToggleLayoutMode: () => void;
   onOpenMap: () => void;
-  onAddRoot: () => void;
+  onAddBranch: () => void;
+  addBranchDisabled?: boolean;
 }) {
   return (
     <div className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface)]/80 px-4 py-2 backdrop-blur">
       <button
         type="button"
-        onClick={onAddRoot}
-        className="flex items-center gap-1.5 rounded-lg bg-[var(--color-accent-soft)] px-3 py-1.5 text-sm text-[var(--color-accent)]"
+        onClick={onAddBranch}
+        disabled={addBranchDisabled}
+        className="flex items-center gap-1.5 rounded-lg bg-[var(--color-accent-soft)] px-3 py-1.5 text-sm text-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <Plus size={14} /> {t('vault.rootBranch')}
+        <Plus size={14} /> {t('vault.branch')}
       </button>
-      {activeRootName && (
-        <span className="hidden truncate text-sm text-[var(--color-muted)] sm:inline">
-          {activeRootName}
-        </span>
+      {activeSpaceName && (
+        <span className="hidden truncate text-sm font-medium sm:inline">{activeSpaceName}</span>
       )}
       <div className="ml-auto flex items-center gap-1">
         <button
           type="button"
           onClick={onOpenMap}
           className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]"
-          title={t('vault.rootBranches')}
+          title={t('vault.spaces')}
         >
           <Map size={14} />
           <span className="hidden sm:inline">{t('common.map')}</span>
-          {rootCount > 1 && (
+          {branchCount > 0 && (
             <span className="rounded-full bg-[var(--color-accent-soft)] px-1.5 py-0.5 text-xs text-[var(--color-accent)]">
-              {rootCount}
+              {branchCount}
             </span>
           )}
         </button>
@@ -1100,6 +1143,7 @@ interface MindMapNodeCardProps {
   document?: { id: string; title: string; mimeType?: string | null };
   x: number;
   y: number;
+  layoutWidth: number;
   selected: boolean;
   renaming: boolean;
   showMenu: boolean;
@@ -1123,6 +1167,7 @@ function MindMapNodeCard({
   document,
   x,
   y,
+  layoutWidth,
   selected,
   renaming,
   showMenu,
@@ -1165,6 +1210,9 @@ function MindMapNodeCard({
 
   const placeholderName = defaultFolderName ?? t('vault.defaultFolderName');
   const nodeDims = readMindMapNodeDims();
+  const boxWidth = isEditing
+    ? resolveMindMapNodeWidth(name || placeholderName, isFolder)
+    : layoutWidth;
   const fileBorderColor = !isFolder
     ? getFileTypeBorderColor(document?.mimeType, document?.title ?? node.name)
     : null;
@@ -1188,7 +1236,7 @@ function MindMapNodeCard({
       style={{
         left: x,
         top: y,
-        width: nodeDims.width,
+        width: boxWidth,
         height: nodeDims.height,
         zIndex: isDragging ? 40 : isEditing ? 35 : undefined,
       }}
@@ -1305,7 +1353,7 @@ function MindMapNodeCard({
                 ) : (
                   <button
                     type="button"
-                    className="min-w-0 truncate text-center font-medium"
+                    className="min-w-0 max-w-full truncate text-center font-medium"
                     style={{ fontSize: 'var(--mind-map-node-font-size)', lineHeight: 1 }}
                     onClick={onSelect}
                   >

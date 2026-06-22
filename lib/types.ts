@@ -1,7 +1,18 @@
 export type NodeType = 'FOLDER' | 'DOCUMENT';
 
+export interface Space {
+  id: string;
+  name: string;
+  presetId: string | null;
+  sortOrder: number;
+  settings: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface TreeNode {
   id: string;
+  spaceId: string;
   parentId: string | null;
   name: string;
   type: NodeType;

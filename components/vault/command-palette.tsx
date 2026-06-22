@@ -19,6 +19,7 @@ export function CommandPalette() {
   const tree = useVaultStore((s) => s.tree);
   const documents = useVaultStore((s) => s.documents);
   const selectedFolderId = useVaultStore((s) => s.selectedFolderId);
+  const activeSpaceId = useVaultStore((s) => s.activeSpaceId);
   const selectFolder = useVaultStore((s) => s.selectFolder);
   const selectNode = useVaultStore((s) => s.selectNode);
   const { createFolder } = useVaultMutations();
@@ -164,7 +165,14 @@ export function CommandPalette() {
       <NameDialog
         open={folderDialogOpen}
         onClose={() => setFolderDialogOpen(false)}
-        onConfirm={(name) => createFolder.mutate({ name, parentId: selectedFolderId })}
+        onConfirm={(name) => {
+          const parent = selectedFolderId
+            ? flattenTree(tree).find((n) => n.id === selectedFolderId)
+            : null;
+          const spaceId = parent?.spaceId ?? activeSpaceId;
+          if (!spaceId) return;
+          createFolder.mutate({ name, spaceId, parentId: selectedFolderId });
+        }}
         title={t('vault.newFolderTitle')}
         description={folderDialogDescription}
         placeholder={t('vault.newFolderPlaceholder')}

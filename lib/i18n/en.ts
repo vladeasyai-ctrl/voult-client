@@ -177,10 +177,25 @@ export const en = {
     aiImport: 'AI import',
     detailsPanel: 'Details panel',
     emptyCanvas: 'Empty canvas',
-    emptyCanvasHint: 'Create a root branch or drop files here',
+    emptyCanvasHint: 'Create a space or drop files here',
     dropForAiImport: 'Release to AI-import into “{target}”',
     canvasHint:
       'Hover a folder and press + for a new branch · Trash to delete · Scroll wheel to zoom',
+    space: 'Space',
+    spaces: 'Spaces',
+    spaceTitle: 'New space',
+    spaceDescription:
+      'A space is a top-level area of your archive: Work, Health, Home, etc.',
+    spacePlaceholder: 'Space name',
+    spaceMapHint: 'Pick a space — the canvas shows all its branches at once.',
+    noSpaces: 'No spaces yet',
+    createFirstSpace: 'Create first space',
+    addSpace: 'Add space',
+    branch: 'Branch',
+    branchTitle: 'New branch',
+    branchDescription:
+      'A branch is a top-level section inside the current space: Labs, Visits, etc.',
+    branchPlaceholder: 'Branch name',
     rootBranch: 'Root branch',
     rootBranchTitle: 'New root branch',
     rootBranchDescription:

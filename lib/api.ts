@@ -10,6 +10,7 @@ import type {
   Document,
   DownloadUrlResponse,
   ImportSession,
+  Space,
   TreeNode,
 } from './types';
 
@@ -66,12 +67,36 @@ export const api = {
       body: JSON.stringify({ idToken }),
     }),
 
-  getTree: () => request<TreeNode[]>('/api/nodes/tree'),
+  getSpaces: () => request<Space[]>('/api/spaces'),
 
-  createFolder: (name: string, parentId: string | null) =>
-    request<{ id: string; name: string; parentId: string | null; type: string }>('/api/nodes', {
+  getSpace: (id: string) => request<Space>(`/api/spaces/${id}`),
+
+  getSpaceTree: (spaceId: string) => request<TreeNode[]>(`/api/spaces/${spaceId}/tree`),
+
+  createSpace: (name: string, presetId?: string | null) =>
+    request<Space>('/api/spaces', {
       method: 'POST',
-      body: JSON.stringify({ name, parentId, type: 'FOLDER' }),
+      body: JSON.stringify({ name, presetId: presetId ?? null }),
+    }),
+
+  updateSpace: (id: string, name: string, presetId?: string | null) =>
+    request<Space>(`/api/spaces/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name, presetId: presetId ?? null }),
+    }),
+
+  deleteSpace: (id: string) => request(`/api/spaces/${id}`, { method: 'DELETE' }),
+
+  createFolder: (name: string, spaceId: string, parentId: string | null) =>
+    request<{
+      id: string;
+      spaceId: string;
+      name: string;
+      parentId: string | null;
+      type: string;
+    }>('/api/nodes', {
+      method: 'POST',
+      body: JSON.stringify({ name, spaceId, parentId, type: 'FOLDER' }),
     }),
 
   renameNode: (id: string, name: string) =>

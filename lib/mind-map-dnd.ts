@@ -1,5 +1,5 @@
 import type { PositionedNode } from './mind-map-layout';
-import { NODE_HEIGHT, NODE_WIDTH, orderedSiblings } from './mind-map-layout';
+import { HORIZONTAL_GAP, NODE_HEIGHT, orderedSiblings } from './mind-map-layout';
 import type { TreeNode } from './types';
 
 export interface CanvasPoint {
@@ -35,7 +35,7 @@ export function hitNodeAtPoint(
     if (excludeId && item.id === excludeId) continue;
     if (
       point.x >= item.x &&
-      point.x <= item.x + NODE_WIDTH &&
+      point.x <= item.x + item.width &&
       point.y >= item.y &&
       point.y <= item.y + NODE_HEIGHT
     ) {
@@ -149,13 +149,30 @@ export function insertionPlaceholderX(
   positioned: PositionedNode[],
   sortIndex = 0,
 ): number {
-  const sibling = positioned.find((p) => p.node.parentId === parentId);
-  if (sibling) return sibling.x;
+  const siblings = orderedSiblings(parentId, positioned);
+  if (siblings.length > 0) {
+    const index = Math.min(Math.max(sortIndex, 0), siblings.length - 1);
+    return siblings[index].x;
+  }
   if (parentId) {
     const parent = positioned.find((p) => p.id === parentId);
-    if (parent) return parent.x + NODE_WIDTH + 140;
+    if (parent) return parent.x + parent.width + HORIZONTAL_GAP;
   }
   return 80;
+}
+
+export function insertionPlaceholderWidth(
+  parentId: string | null,
+  sortIndex: number,
+  positioned: PositionedNode[],
+): number {
+  const siblings = orderedSiblings(parentId, positioned);
+  if (siblings.length === 0) {
+    const parent = positioned.find((p) => p.id === parentId);
+    return parent?.width ?? 196;
+  }
+  const index = Math.min(Math.max(sortIndex, 0), siblings.length - 1);
+  return siblings[index]?.width ?? 196;
 }
 
 export const SUGGESTION_SLOT_HEIGHT = 48;
