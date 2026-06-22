@@ -2,10 +2,10 @@
 
 import { motion, useInView } from 'framer-motion';
 import {
-  Activity,
   ArrowRight,
   Brain,
   FolderTree,
+  HeartPulse,
   Lock,
   Map,
   Search,
@@ -15,7 +15,8 @@ import {
   Zap,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { isAuthenticated } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 import { en } from '@/lib/i18n/en';
 import { t } from '@/lib/i18n';
@@ -54,6 +55,12 @@ function Section({
 }
 
 export function LandingPage() {
+  const [authenticated, setAuthenticated] = useState(false);
+
+  useEffect(() => {
+    setAuthenticated(isAuthenticated());
+  }, []);
+
   return (
     <div className="min-h-screen bg-[var(--color-canvas)] text-[var(--color-text)]">
       {/* Nav */}
@@ -79,19 +86,31 @@ export function LandingPage() {
           </nav>
 
           <div className="flex items-center gap-3">
-            <Link
-              href="/login"
-              className="hidden text-sm text-[var(--color-muted)] transition hover:text-[var(--color-text)] sm:inline"
-            >
-              {t('landing.signIn')}
-            </Link>
-            <Link
-              href="/login"
-              className="inline-flex items-center gap-2 rounded-xl bg-[var(--color-accent)] px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90"
-            >
-              {t('landing.startFree')}
-              <ArrowRight size={15} />
-            </Link>
+            {authenticated ? (
+              <Link
+                href="/vault"
+                className="inline-flex items-center gap-2 rounded-xl bg-[var(--color-accent)] px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90"
+              >
+                {t('landing.backToVault')}
+                <ArrowRight size={15} />
+              </Link>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="hidden text-sm text-[var(--color-muted)] transition hover:text-[var(--color-text)] sm:inline"
+                >
+                  {t('landing.signIn')}
+                </Link>
+                <Link
+                  href="/login"
+                  className="inline-flex items-center gap-2 rounded-xl bg-[var(--color-accent)] px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90"
+                >
+                  {t('landing.startFree')}
+                  <ArrowRight size={15} />
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -124,10 +143,10 @@ export function LandingPage() {
 
             <div className="mt-8 flex flex-wrap items-center gap-4">
               <Link
-                href="/login"
+                href={authenticated ? '/vault' : '/login'}
                 className="inline-flex items-center gap-2 rounded-2xl bg-[var(--color-accent)] px-6 py-3.5 text-base font-medium text-white shadow-lg shadow-[var(--color-accent)]/20 transition hover:opacity-90"
               >
-                {t('landing.createArchive')}
+                {authenticated ? t('landing.backToVault') : t('landing.createArchive')}
                 <ArrowRight size={18} />
               </Link>
               <a
@@ -189,7 +208,7 @@ export function LandingPage() {
               delay={0.1}
             />
             <FeatureCard
-              icon={Activity}
+              icon={HeartPulse}
               title={t('landing.featureHealthTitle')}
               description={t('landing.featureHealthDesc')}
               delay={0.2}
@@ -311,10 +330,10 @@ export function LandingPage() {
               ))}
             </ul>
             <Link
-              href="/login"
+              href={authenticated ? '/vault' : '/login'}
               className="mt-8 flex w-full items-center justify-center gap-2 rounded-2xl bg-[var(--color-accent)] py-3.5 text-sm font-medium text-white transition hover:opacity-90"
             >
-              {t('landing.startFree')}
+              {authenticated ? t('landing.backToVault') : t('landing.startFree')}
               <ArrowRight size={16} />
             </Link>
           </div>
@@ -331,10 +350,10 @@ export function LandingPage() {
             {t('landing.ctaSubtitle')}
           </p>
           <Link
-            href="/login"
+            href={authenticated ? '/vault' : '/login'}
             className="mt-8 inline-flex items-center gap-2 rounded-2xl bg-[var(--color-accent)] px-8 py-4 text-base font-medium text-white shadow-lg transition hover:opacity-90"
           >
-            {t('landing.createArchive')}
+            {authenticated ? t('landing.backToVault') : t('landing.createArchive')}
             <ArrowRight size={18} />
           </Link>
         </div>
@@ -348,9 +367,15 @@ export function LandingPage() {
             <span>{t('landing.footer')}</span>
           </div>
           <div className="flex gap-6 text-sm text-[var(--color-muted)]">
-            <Link href="/login" className="transition hover:text-[var(--color-text)]">
-              {t('landing.signIn')}
-            </Link>
+            {authenticated ? (
+              <Link href="/vault" className="transition hover:text-[var(--color-text)]">
+                {t('landing.backToVault')}
+              </Link>
+            ) : (
+              <Link href="/login" className="transition hover:text-[var(--color-text)]">
+                {t('landing.signIn')}
+              </Link>
+            )}
             <a href="#features" className="transition hover:text-[var(--color-text)]">
               {t('landing.features')}
             </a>

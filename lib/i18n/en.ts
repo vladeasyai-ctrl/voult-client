@@ -26,12 +26,9 @@ export const en = {
     map: 'Map',
     tree: 'Tree',
     radial: 'Neural',
-    bodyMap: 'Body map',
-    xray: 'X-ray',
     rename: 'Rename',
     uploadFile: 'Upload file',
     delete: 'Delete',
-    toBody: 'Back to body',
     step: 'Step {step}',
   },
   meta: {
@@ -39,7 +36,7 @@ export const en = {
     description:
       'Upload a PDF or scan — AI organizes it on a visual map. Free while we are in early access.',
     ogTitle: 'Vault — a personal archive that organizes itself',
-    ogDescription: 'Mind-map for documents, AI import, and health map. Completely free for now.',
+    ogDescription: 'Mind-map for documents, AI import, and personal archive. Completely free for now.',
   },
   auth: {
     tagline: 'Your personal space',
@@ -112,6 +109,7 @@ export const en = {
     pricing: 'Pricing',
     signIn: 'Sign in',
     startFree: 'Start for free',
+    backToVault: 'Back to vault',
     heroBadge: 'Completely free for now',
     heroTitle: 'Personal archive,',
     heroTitleAccent: 'that organizes itself',
@@ -133,9 +131,9 @@ export const en = {
     featureAiImportTitle: 'AI import',
     featureAiImportDesc:
       'Upload a scan or PDF — AI suggests a title, summary, and folder. Confirm with one click.',
-    featureHealthTitle: 'Health map',
+    featureHealthTitle: 'Health archive',
     featureHealthDesc:
-      'A unique mode for medical documents: tap a body region to create folders for labs, MRI, or visits.',
+      'A dedicated branch for medical documents: labs, prescriptions, MRI reports, and visit history in one place.',
     featureSearchTitle: 'Search Ctrl+K',
     featureSearchDesc:
       'Instant document search and quick commands — create a folder, upload a file, jump to a branch.',
@@ -158,7 +156,7 @@ export const en = {
     presetWorkTitle: 'Work',
     presetWorkItems: ['Clients and contracts', 'Resume and certificates', 'Invoices and reports'],
     presetHealthTitle: 'Health',
-    presetHealthItems: ['Lab results and reports', 'Body map by region', 'Visit history'],
+    presetHealthItems: ['Lab results and reports', 'Prescriptions and referrals', 'Visit history'],
     pricingTitle: 'Free for now',
     pricingSubtitle:
       'We are in early access and opening the product without payment. Create an account, upload documents, use AI import — no subscription or card.',
@@ -166,7 +164,7 @@ export const en = {
     pricingPriceNote: 'for all current features',
     pricingFeatures: [
       'Unlimited document storage',
-      'Mind-map and health map',
+      'Mind-map visualization',
       'AI import and commands',
       'Search and file preview',
     ],
@@ -239,16 +237,8 @@ export const en = {
     aiImportTarget: 'Target',
     aiImportSelectedFolder: 'selected folder',
     aiImportSupported: 'AI import supports photos (image/*) and PDF',
-    healthXrayMap: 'X-ray map · {count} docs',
-    healthSelectFolder: 'Select a folder · number in brackets = uploaded documents',
-    healthTapRegion: 'Tap a highlighted body region',
-    healthSilhouette: 'Body silhouette',
-    healthRegionDocs: '{label}{count, plural, =0 {} other {, {count} documents}}',
-    healthSelectOrCreate: 'Select a folder or create a new one',
-    healthCreateFolder: 'Create “{name}”',
     defaultFolderName: 'New folder',
     defaultFolderNameNumbered: 'Folder{n}',
-    comingSoon: 'Coming soon',
     welcome: 'Welcome',
     presetPickerTitle: 'Where should we start your archive?',
     presetPickerSubtitle:
@@ -272,7 +262,7 @@ export const en = {
     },
     health: {
       label: 'Health',
-      description: 'Body map — tap a region and create folders for documents',
+      description: 'Lab results, prescriptions, and visit history',
       rootName: 'Health',
       labs: 'Labs',
       labN: 'Lab {n}',

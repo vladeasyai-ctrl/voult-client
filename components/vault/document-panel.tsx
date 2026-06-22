@@ -8,7 +8,6 @@ import { formatBytes, formatDate } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { useVaultStore } from '@/stores/vault-store';
 import { DocumentPreview } from '@/components/vault/document-preview';
-import { FutureFeatures } from '@/components/vault/future-features';
 import { FileTypeIcon, FileTypeLabel } from '@/components/ui/file-type-icon';
 
 export function DocumentPanel() {
@@ -43,8 +42,8 @@ export function DocumentPanel() {
   }
 
   return (
-    <aside className="flex h-full flex-col overflow-y-auto border-l border-[var(--color-border)] bg-[var(--color-surface)]">
-      <div className="border-b border-[var(--color-border)] p-5">
+    <aside className="flex h-full flex-col overflow-hidden border-l border-[var(--color-border)] bg-[var(--color-surface)]">
+      <div className="shrink-0 border-b border-[var(--color-border)] p-5">
         <p className="text-xs uppercase tracking-wider text-[var(--color-muted)]">{t('common.document')}</p>
         <h2 className="mt-1 font-[family-name:var(--font-display)] text-2xl leading-tight">
           {document.title}
@@ -57,7 +56,7 @@ export function DocumentPanel() {
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 border-b border-[var(--color-border)] p-5 text-sm">
+      <div className="grid shrink-0 grid-cols-2 gap-3 border-b border-[var(--color-border)] p-5 text-sm">
         <Meta label={t('common.created')} value={formatDate(document.createdAt)} />
         <Meta label={t('common.updated')} value={formatDate(document.updatedAt)} />
         <Meta label={t('common.size')} value={assetQuery.data ? formatBytes(assetQuery.data.size) : '—'} />
@@ -78,8 +77,9 @@ export function DocumentPanel() {
         />
       </div>
 
-      <div className="border-b border-[var(--color-border)] p-5">
+      <div className="flex min-h-0 flex-1 flex-col p-5">
         <DocumentPreview
+          className="min-h-0 flex-1"
           downloadUrl={downloadQuery.data?.url}
           mimeType={assetQuery.data?.mimeType}
           title={document.title}
@@ -89,15 +89,13 @@ export function DocumentPanel() {
             href={downloadQuery.data.url}
             target="_blank"
             rel="noreferrer"
-            className="mt-3 inline-flex items-center gap-2 text-sm text-[var(--color-accent)] hover:underline"
+            className="mt-3 inline-flex shrink-0 items-center gap-2 text-sm text-[var(--color-accent)] hover:underline"
           >
             <Download size={14} />
             {t('common.download')}
           </a>
         )}
       </div>
-
-      <FutureFeatures />
     </aside>
   );
 }

@@ -3,7 +3,6 @@
 import { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
-  Activity,
   Folder,
   FolderPlus,
   GripVertical,
@@ -34,7 +33,6 @@ import { removeFromOrderMap } from '@/lib/node-order';
 import { applyTreeMove } from '@/lib/tree-move-utils';
 import { createPendingFolder, isPendingNodeId, suggestChildFolderName } from '@/lib/tree-mutations';
 import { findPresetByRootName, type VaultPreset } from '@/lib/presets';
-import { isHealthPresetRoot } from '@/lib/health-body-map';
 import { flattenTree, findNode } from '@/lib/tree-utils';
 import type { DropTarget, TreeNode } from '@/lib/types';
 import { AI_IMPORT_UNSUPPORTED_HINT, isAiImportFile } from '@/lib/ai-import';
@@ -45,7 +43,6 @@ import { NameDialog } from '@/components/vault/name-dialog';
 import { FileTypeIcon } from '@/components/ui/file-type-icon';
 import { PresetPicker } from '@/components/vault/preset-picker';
 import { RootFolderMap } from '@/components/vault/root-folder-map';
-import { HealthBodyCanvas } from '@/components/vault/health-body-canvas';
 import { MindMapEdges } from '@/components/vault/mind-map-edges';
 import {
   MindMapCanvasSettingsButton,
@@ -117,8 +114,6 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
   const setRenamingNodeId = useVaultStore((s) => s.setRenamingNodeId);
   const activeRootId = useVaultStore((s) => s.activeRootId);
   const setActiveRootId = useVaultStore((s) => s.setActiveRootId);
-  const healthViewMode = useVaultStore((s) => s.healthViewMode);
-  const setHealthViewMode = useVaultStore((s) => s.setHealthViewMode);
   const layoutMode = useVaultStore((s) => s.layoutMode);
   const setLayoutMode = useVaultStore((s) => s.setLayoutMode);
   const resetCanvasView = useVaultStore((s) => s.resetCanvasView);
@@ -175,14 +170,6 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
     () => (activeRoot ? [activeRoot] : []),
     [activeRoot],
   );
-
-  const isHealthRoot = useMemo(
-    () => Boolean(activeRoot && isHealthPresetRoot(activeRoot.name, presetId)),
-    [activeRoot, presetId],
-  );
-
-  const showHealthBody =
-    isHealthRoot && healthViewMode === 'body' && activeRoot != null;
 
   useEffect(() => {
     if (rootFolders.length === 0) {
@@ -546,7 +533,6 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
         onSuccess: (created) => {
           setPresetId(preset.id);
           setActiveRootId(created.id);
-          if (preset.id === 'health') setHealthViewMode('body');
           setOnboarded(true);
           setShowPresetPicker(false);
         },
@@ -655,11 +641,11 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
 
   useEffect(() => {
     const viewport = containerRef.current;
-    if (!viewport || showHealthBody) return;
+    if (!viewport) return;
 
     viewport.addEventListener('wheel', onWheel, { passive: false });
     return () => viewport.removeEventListener('wheel', onWheel);
-  }, [onWheel, showHealthBody]);
+  }, [onWheel]);
 
   const handleCanvasZoomIn = useCallback(() => {
     const currentScale = useVaultStore.getState().canvas.scale;
@@ -671,14 +657,8 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
     setCanvas({ scale: Math.max(0.35, currentScale - 0.1) });
   }, [setCanvas]);
 
-  const handleCreateHealthFolder = async (name: string) => {
-    if (!activeRoot) return;
-    const created = await createFolder.mutateAsync({ name, parentId: activeRoot.id });
-    selectNode(created.id);
-  };
-
   const onPointerDown = (e: React.PointerEvent) => {
-    if (showHealthBody || dragState) return;
+    if (dragState) return;
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.closest('[data-mind-node]')) return;
@@ -805,11 +785,6 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
         <CanvasToolbar
           activeRootName={activeRoot?.name}
           rootCount={rootFolders.length}
-          isHealthRoot={isHealthRoot}
-          healthViewMode={healthViewMode}
-          onToggleHealthView={() =>
-            setHealthViewMode(healthViewMode === 'body' ? 'tree' : 'body')
-          }
           layoutMode={layoutMode}
           onToggleLayoutMode={() =>
             setLayoutMode(layoutMode === 'tree' ? 'radial' : 'tree')
@@ -818,19 +793,6 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
           onAddRoot={handleAddRoot}
         />
 
-        {showHealthBody ? (
-          <HealthBodyCanvas
-            root={activeRoot}
-            documents={documents}
-            onCreateFolder={handleCreateHealthFolder}
-            onSelectFolder={(id) => {
-              selectNode(id);
-              setHealthViewMode('tree');
-            }}
-            onSwitchToTree={() => setHealthViewMode('tree')}
-          />
-        ) : (
-        <>
         <div
           ref={containerRef}
           className={cn(
@@ -1004,26 +966,22 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
             denied={trashDenied}
           />
 
-          {!showHealthBody && (
-            <>
-              <MindMapCanvasSettingsButton
-                open={canvasSettingsOpen}
-                settingsRef={settingsRef}
-                onToggle={() => setCanvasSettingsOpen((open) => !open)}
-              />
-              <MindMapCanvasSettingsPanel
-                open={canvasSettingsOpen}
-                settingsPanelRef={settingsPanelRef}
-                scale={canvas.scale}
-                onZoomIn={handleCanvasZoomIn}
-                onZoomOut={handleCanvasZoomOut}
-                onReset={() => {
-                  resetCanvasView();
-                  setCanvasSettingsOpen(false);
-                }}
-              />
-            </>
-          )}
+          <MindMapCanvasSettingsButton
+            open={canvasSettingsOpen}
+            settingsRef={settingsRef}
+            onToggle={() => setCanvasSettingsOpen((open) => !open)}
+          />
+          <MindMapCanvasSettingsPanel
+            open={canvasSettingsOpen}
+            settingsPanelRef={settingsPanelRef}
+            scale={canvas.scale}
+            onZoomIn={handleCanvasZoomIn}
+            onZoomOut={handleCanvasZoomOut}
+            onReset={() => {
+              resetCanvasView();
+              setCanvasSettingsOpen(false);
+            }}
+          />
 
           {pendingDelete && (
             <MindMapDeleteFly
@@ -1042,8 +1000,6 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
         <div className="border-t border-[var(--color-border)] px-4 py-2 text-xs text-[var(--color-muted)]">
           {t('vault.canvasHint')}
         </div>
-        </>
-        )}
       </div>
     </>
   );
@@ -1077,9 +1033,6 @@ function resolvePresetId(
 function CanvasToolbar({
   activeRootName,
   rootCount,
-  isHealthRoot,
-  healthViewMode,
-  onToggleHealthView,
   layoutMode,
   onToggleLayoutMode,
   onOpenMap,
@@ -1087,9 +1040,6 @@ function CanvasToolbar({
 }: {
   activeRootName?: string;
   rootCount: number;
-  isHealthRoot?: boolean;
-  healthViewMode?: 'body' | 'tree';
-  onToggleHealthView?: () => void;
   layoutMode: VaultLayoutMode;
   onToggleLayoutMode: () => void;
   onOpenMap: () => void;
@@ -1108,24 +1058,6 @@ function CanvasToolbar({
         <span className="hidden truncate text-sm text-[var(--color-muted)] sm:inline">
           {activeRootName}
         </span>
-      )}
-      {isHealthRoot && onToggleHealthView && (
-        <button
-          type="button"
-          onClick={onToggleHealthView}
-          className={cn(
-            'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition',
-            healthViewMode === 'body'
-              ? 'bg-cyan-950/80 text-cyan-300 ring-1 ring-cyan-500/40'
-              : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]',
-          )}
-          title={healthViewMode === 'body' ? t('common.xray') : t('common.bodyMap')}
-        >
-          <Activity size={14} />
-          <span className="hidden sm:inline">
-            {healthViewMode === 'body' ? t('common.bodyMap') : t('common.xray')}
-          </span>
-        </button>
       )}
       <div className="ml-auto flex items-center gap-1">
         <button
@@ -1328,64 +1260,122 @@ function MindMapNodeCard({
           <GripVertical size={14} />
         </button>
 
-        <div className="flex min-w-0 flex-1 items-center gap-1">
-          {isFolder ? (
-            <Folder size={32} className="shrink-0 text-[var(--color-accent)]" />
-          ) : (
-            <FileTypeIcon
-              mimeType={document?.mimeType}
-              filename={document?.title ?? node.name}
-              size={32}
-            />
+        <div
+          className={cn(
+            'flex min-w-0 items-center gap-1',
+            isFolder ? 'flex-1 justify-center' : 'flex-1',
           )}
-          {isEditing ? (
-            <div className="relative min-w-0 flex-1">
-              {!name.trim() && (
-                <span
-                  className="pointer-events-none absolute inset-0 truncate text-[var(--color-muted)]/55"
-                  style={{ fontSize: 'var(--mind-map-node-font-size)', lineHeight: 1 }}
-                  aria-hidden
-                >
-                  {placeholderName}
-                </span>
-              )}
-              <input
-                ref={inputRef}
-                className="relative z-[1] w-full rounded border border-[var(--color-accent)]/40 bg-transparent outline-none ring-2 ring-[var(--color-accent)]/15"
-                style={{ fontSize: 'var(--mind-map-node-font-size)', lineHeight: 1 }}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onBlur={commitRename}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    commitRename();
-                  }
-                  if (e.key === 'Escape') {
-                    e.preventDefault();
-                    committedRef.current = true;
-                    onCancelRename();
-                  }
-                }}
-                onClick={(e) => e.stopPropagation()}
-              />
+        >
+          {isFolder ? (
+            <div className="grid min-w-0 max-w-full place-items-center">
+              <div className="flex min-w-0 max-w-full items-center gap-2">
+                <Folder size={32} className="shrink-0 text-[var(--color-accent)]" />
+                {isEditing ? (
+                  <div className="relative min-w-0 max-w-full">
+                    {!name.trim() && (
+                      <span
+                        className="pointer-events-none absolute inset-0 truncate text-center text-[var(--color-muted)]/55"
+                        style={{ fontSize: 'var(--mind-map-node-font-size)', lineHeight: 1 }}
+                        aria-hidden
+                      >
+                        {placeholderName}
+                      </span>
+                    )}
+                    <input
+                      ref={inputRef}
+                      className="relative z-[1] w-full min-w-[4rem] rounded border border-[var(--color-accent)]/40 bg-transparent text-center outline-none ring-2 ring-[var(--color-accent)]/15"
+                      style={{ fontSize: 'var(--mind-map-node-font-size)', lineHeight: 1 }}
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      onBlur={commitRename}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          commitRename();
+                        }
+                        if (e.key === 'Escape') {
+                          e.preventDefault();
+                          committedRef.current = true;
+                          onCancelRename();
+                        }
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="min-w-0 truncate text-center font-medium"
+                    style={{ fontSize: 'var(--mind-map-node-font-size)', lineHeight: 1 }}
+                    onClick={onSelect}
+                  >
+                    {node.name}
+                  </button>
+                )}
+              </div>
             </div>
           ) : (
-            <button
-              type="button"
-              className="min-w-0 flex-1 truncate text-left font-medium"
-              style={{ fontSize: 'var(--mind-map-node-font-size)', lineHeight: 1 }}
-              onClick={onSelect}
-            >
-              {node.name}
-            </button>
+            <>
+              <FileTypeIcon
+                mimeType={document?.mimeType}
+                filename={document?.title ?? node.name}
+                size={32}
+              />
+              {isEditing ? (
+                <div className="relative min-w-0 flex-1">
+                  {!name.trim() && (
+                    <span
+                      className="pointer-events-none absolute inset-0 truncate text-[var(--color-muted)]/55"
+                      style={{ fontSize: 'var(--mind-map-node-font-size)', lineHeight: 1 }}
+                      aria-hidden
+                    >
+                      {placeholderName}
+                    </span>
+                  )}
+                  <input
+                    ref={inputRef}
+                    className="relative z-[1] w-full rounded border border-[var(--color-accent)]/40 bg-transparent outline-none ring-2 ring-[var(--color-accent)]/15"
+                    style={{ fontSize: 'var(--mind-map-node-font-size)', lineHeight: 1 }}
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    onBlur={commitRename}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        commitRename();
+                      }
+                      if (e.key === 'Escape') {
+                        e.preventDefault();
+                        committedRef.current = true;
+                        onCancelRename();
+                      }
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 truncate text-left font-medium"
+                  style={{ fontSize: 'var(--mind-map-node-font-size)', lineHeight: 1 }}
+                  onClick={onSelect}
+                >
+                  {node.name}
+                </button>
+              )}
+            </>
           )}
         </div>
 
         {!isEditing && (
           <button
             type="button"
-            className="-mr-0.5 shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-[var(--color-surface-2)]"
+            className={cn(
+              'shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-[var(--color-surface-2)]',
+              isFolder
+                ? 'absolute top-1/2 right-[var(--mind-map-node-padding)] -translate-y-1/2'
+                : '-mr-0.5',
+            )}
             onClick={onContextMenu}
           >
             <MoreHorizontal size={14} />

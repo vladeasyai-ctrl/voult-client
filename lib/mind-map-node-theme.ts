@@ -7,7 +7,7 @@
 export const DEFAULT_NODE_WIDTH = 196;
 export const DEFAULT_NODE_HEIGHT = 60;
 export const DEFAULT_NODE_FONT_SIZE = '1.75rem';
-export const DEFAULT_NODE_PADDING = '4px';
+export const DEFAULT_NODE_PADDING = '14px';
 
 export interface MindMapNodeDims {
   width: number;

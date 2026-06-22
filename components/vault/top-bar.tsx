@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  Lock,
   Moon,
   PanelRightClose,
   PanelRightOpen,
@@ -9,6 +10,7 @@ import {
   Sparkles,
   Sun,
 } from 'lucide-react';
+import Link from 'next/link';
 import { useEffect } from 'react';
 import { cn } from '@/lib/cn';
 import { clearToken } from '@/lib/auth';
@@ -36,9 +38,18 @@ export function TopBar({ onRefresh, onOpenAiImport }: TopBarProps) {
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]/80 px-4 backdrop-blur-md">
-      <div className="font-[family-name:var(--font-display)] text-lg tracking-tight">
-        Vault
-      </div>
+      <Link
+        href="/"
+        className="flex items-center gap-2 rounded-lg transition hover:opacity-80"
+        title={t('common.backToHome')}
+      >
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--color-accent-soft)] text-[var(--color-accent)]">
+          <Lock size={16} />
+        </div>
+        <span className="font-[family-name:var(--font-display)] text-lg tracking-tight">
+          Vault
+        </span>
+      </Link>
 
       <button
         type="button"

@@ -1,20 +1,30 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
-import { formatBytes } from '@/lib/format';
+import { cn } from '@/lib/cn';
 import { t } from '@/lib/i18n';
 
 interface DocumentPreviewProps {
   downloadUrl?: string;
   mimeType?: string;
   title: string;
+  className?: string;
 }
 
-export function DocumentPreview({ downloadUrl, mimeType, title }: DocumentPreviewProps) {
+export function DocumentPreview({
+  downloadUrl,
+  mimeType,
+  title,
+  className,
+}: DocumentPreviewProps) {
   if (!downloadUrl) {
     return (
-      <div className="flex h-48 items-center justify-center rounded-2xl bg-[var(--color-surface-2)] text-sm text-[var(--color-muted)]">
+      <div
+        className={cn(
+          'flex items-center justify-center rounded-2xl bg-[var(--color-surface-2)] text-sm text-[var(--color-muted)]',
+          className,
+        )}
+      >
         {t('vault.noPreviewFile')}
       </div>
     );
@@ -30,34 +40,45 @@ export function DocumentPreview({ downloadUrl, mimeType, title }: DocumentPrevie
       <iframe
         src={downloadUrl}
         title={title}
-        className="h-64 w-full rounded-2xl border border-[var(--color-border)] bg-white"
+        className={cn(
+          'w-full rounded-2xl border border-[var(--color-border)] bg-white',
+          className,
+        )}
       />
     );
   }
 
   if (isImage) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={downloadUrl}
-        alt={title}
-        className="max-h-64 w-full rounded-2xl border border-[var(--color-border)] object-contain"
-      />
+      <div
+        className={cn(
+          'flex min-h-0 items-center justify-center overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-2)]',
+          className,
+        )}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={downloadUrl} alt={title} className="max-h-full max-w-full object-contain" />
+      </div>
     );
   }
 
   if (mimeType?.startsWith('text/') || /\.(txt|md|json|xml|csv)$/i.test(title)) {
-    return <TextPreview url={downloadUrl} />;
+    return <TextPreview url={downloadUrl} className={className} />;
   }
 
   return (
-    <div className="rounded-2xl bg-[var(--color-surface-2)] p-4 text-sm text-[var(--color-muted)]">
+    <div
+      className={cn(
+        'flex items-center rounded-2xl bg-[var(--color-surface-2)] p-4 text-sm text-[var(--color-muted)]',
+        className,
+      )}
+    >
       {t('vault.previewUnsupported')}
     </div>
   );
 }
 
-function TextPreview({ url }: { url: string }) {
+function TextPreview({ url, className }: { url: string; className?: string }) {
   const { data } = useQuery({
     queryKey: ['text-preview', url],
     queryFn: async () => {
@@ -68,7 +89,12 @@ function TextPreview({ url }: { url: string }) {
   });
 
   return (
-    <pre className="max-h-64 overflow-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-4 text-xs leading-relaxed">
+    <pre
+      className={cn(
+        'overflow-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-4 text-xs leading-relaxed',
+        className,
+      )}
+    >
       {data ?? t('common.loading')}
     </pre>
   );
