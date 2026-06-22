@@ -15,6 +15,10 @@
   --color-accent: #4a6741;
   --color-accent-soft: #e8efe6;
   --color-drop: #dce8d8;
+  --mind-map-node-width: 196;
+  --mind-map-node-height: 60;
+  --mind-map-node-font-size: 1.75rem;
+  --mind-map-node-padding: 4px;
 }
 
 .dark {

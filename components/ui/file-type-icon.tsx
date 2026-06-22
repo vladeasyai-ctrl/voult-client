@@ -21,17 +21,7 @@ const BADGE_TEXT: Record<FileTypeKind, string> = {
   generic: '',
 };
 
-const BADGE_COLOR: Record<FileTypeKind, string> = {
-  pdf: '#E74C3C',
-  word: '#2B579A',
-  excel: '#217346',
-  powerpoint: '#D24726',
-  image: '#7C3AED',
-  text: '#64748B',
-  archive: '#CA8A04',
-  video: '#DB2777',
-  generic: '#94A3B8',
-};
+import { FILE_TYPE_BORDER_COLOR } from '@/lib/file-type';
 
 function DocShell({ children, fold = '#E8EDF2' }: { children: ReactNode; fold?: string }) {
   return (
@@ -49,7 +39,7 @@ function DocShell({ children, fold = '#E8EDF2' }: { children: ReactNode; fold?: 
 }
 
 function KindArt({ kind }: { kind: FileTypeKind }) {
-  const color = BADGE_COLOR[kind];
+  const color = FILE_TYPE_BORDER_COLOR[kind];
 
   if (kind === 'image') {
     return (

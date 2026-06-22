@@ -12,18 +12,14 @@ import {
   Pencil,
   Plus,
   Trash2,
-  Sun,
-  TreePine,
   Upload,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { t } from '@/lib/i18n';
 import { en } from '@/lib/i18n/en';
-import {
-  buildMindMapLayout,
-  NODE_HEIGHT,
-  NODE_WIDTH,
-} from '@/lib/mind-map-layout';
+import { buildMindMapLayout } from '@/lib/mind-map-layout';
+import { readMindMapNodeDims } from '@/lib/mind-map-node-theme';
+import { getFileTypeBorderColor } from '@/lib/file-type';
 import {
   canvasPointFromClient,
   insertionPlaceholderX,
@@ -120,10 +116,6 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
   const setActiveRootId = useVaultStore((s) => s.setActiveRootId);
   const healthViewMode = useVaultStore((s) => s.healthViewMode);
   const setHealthViewMode = useVaultStore((s) => s.setHealthViewMode);
-  const mindMapLayoutMode = useVaultStore((s) => s.mindMapLayoutMode);
-  const toggleMindMapLayoutMode = useVaultStore((s) => s.toggleMindMapLayoutMode);
-  const radialFolderRayLength = useVaultStore((s) => s.radialFolderRayLength);
-  const setRadialFolderRayLength = useVaultStore((s) => s.setRadialFolderRayLength);
   const resetCanvasView = useVaultStore((s) => s.resetCanvasView);
   const reorderNodeLocal = useVaultStore((s) => s.reorderNodeLocal);
   const moveNodeLocal = useVaultStore((s) => s.moveNodeLocal);
@@ -157,6 +149,8 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
   const pendingDeleteRef = useRef<PendingDelete | null>(null);
   const [canvasSettingsOpen, setCanvasSettingsOpen] = useState(false);
   const [pendingDefaultNames, setPendingDefaultNames] = useState<Record<string, string>>({});
+
+  const nodeDims = readMindMapNodeDims();
 
   const rootFolders = useMemo(
     () => tree.filter((n) => n.type === 'FOLDER'),
@@ -216,14 +210,9 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
     }
   }, [isLoading, onboarded, tree.length, rootFolders.length, setOnboarded]);
 
-  const radialLayoutConfig = useMemo(
-    () => ({ folderRayLength: radialFolderRayLength }),
-    [radialFolderRayLength],
-  );
-
   const baseLayout = useMemo(
-    () => buildMindMapLayout(displayTree, mindMapLayoutMode, radialLayoutConfig),
-    [displayTree, mindMapLayoutMode, radialLayoutConfig],
+    () => buildMindMapLayout(displayTree),
+    [displayTree],
   );
 
   const treeForLayout = useMemo(() => {
@@ -237,28 +226,9 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
   }, [displayTree, dragState, dropTarget]);
 
   const layout = useMemo(
-    () => buildMindMapLayout(treeForLayout, mindMapLayoutMode, radialLayoutConfig),
-    [treeForLayout, mindMapLayoutMode, radialLayoutConfig],
+    () => buildMindMapLayout(treeForLayout),
+    [treeForLayout],
   );
-
-  const minFolderRayLength = layout.minFolderRayLength ?? 200;
-  const activeFolderRayLength = layout.folderRayLength ?? minFolderRayLength;
-  const maxFolderRayLength = minFolderRayLength * 2;
-
-  useEffect(() => {
-    if (mindMapLayoutMode !== 'radial') return;
-    if (radialFolderRayLength == null) return;
-    const clamped = Math.min(maxFolderRayLength, Math.max(minFolderRayLength, radialFolderRayLength));
-    if (clamped !== radialFolderRayLength) {
-      setRadialFolderRayLength(clamped);
-    }
-  }, [
-    mindMapLayoutMode,
-    minFolderRayLength,
-    maxFolderRayLength,
-    radialFolderRayLength,
-    setRadialFolderRayLength,
-  ]);
 
   useEffect(() => {
     if (!canvasSettingsOpen) return;
@@ -372,8 +342,8 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
           ? {
               left: canvas.x + dragState.canvasX * canvas.scale,
               top: canvas.y + dragState.canvasY * canvas.scale,
-              width: NODE_WIDTH * canvas.scale,
-              height: NODE_HEIGHT * canvas.scale,
+              width: nodeDims.width * canvas.scale,
+              height: nodeDims.height * canvas.scale,
             }
           : null);
 
@@ -420,11 +390,10 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
         draggedNode,
         baseLayout.nodes,
         displayTree,
-        mindMapLayoutMode,
       );
       setDropTarget(target);
     },
-    [dragState, draggedNode, canvas.x, canvas.y, canvas.scale, baseLayout.nodes, displayTree, mindMapLayoutMode],
+    [dragState, draggedNode, canvas.x, canvas.y, canvas.scale, baseLayout.nodes, displayTree],
   );
 
   const finishDrag = useCallback(async () => {
@@ -439,8 +408,8 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
       const box = {
         left: canvas.x + dragState.canvasX * canvas.scale,
         top: canvas.y + dragState.canvasY * canvas.scale,
-        width: NODE_WIDTH * canvas.scale,
-        height: NODE_HEIGHT * canvas.scale,
+        width: nodeDims.width * canvas.scale,
+        height: nodeDims.height * canvas.scale,
       };
       setDragState(null);
       setDropTarget(null);
@@ -535,10 +504,10 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
         offsetY,
       });
       setDropTarget(
-        resolveDragDropTarget(point, dragged, baseLayout.nodes, displayTree, mindMapLayoutMode),
+        resolveDragDropTarget(point, dragged, baseLayout.nodes, displayTree),
       );
     },
-    [baseLayout.nodes, canvas.x, canvas.y, canvas.scale, displayTree, flat, mindMapLayoutMode],
+    [baseLayout.nodes, canvas.x, canvas.y, canvas.scale, displayTree, flat],
   );
 
   const handleAddRoot = () => {
@@ -679,6 +648,16 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
     return () => viewport.removeEventListener('wheel', onWheel);
   }, [onWheel, showHealthBody]);
 
+  const handleCanvasZoomIn = useCallback(() => {
+    const currentScale = useVaultStore.getState().canvas.scale;
+    setCanvas({ scale: Math.min(2, currentScale + 0.1) });
+  }, [setCanvas]);
+
+  const handleCanvasZoomOut = useCallback(() => {
+    const currentScale = useVaultStore.getState().canvas.scale;
+    setCanvas({ scale: Math.max(0.35, currentScale - 0.1) });
+  }, [setCanvas]);
+
   const handleCreateHealthFolder = async (name: string) => {
     if (!activeRoot) return;
     const created = await createFolder.mutateAsync({ name, parentId: activeRoot.id });
@@ -815,8 +794,6 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
           rootCount={rootFolders.length}
           isHealthRoot={isHealthRoot}
           healthViewMode={healthViewMode}
-          mindMapLayoutMode={mindMapLayoutMode}
-          onToggleMindMapLayout={toggleMindMapLayoutMode}
           onToggleHealthView={() =>
             setHealthViewMode(healthViewMode === 'body' ? 'tree' : 'body')
           }
@@ -865,7 +842,6 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
               width={layout.width}
               height={layout.height}
               edges={layout.edges}
-              mode={mindMapLayoutMode}
             />
 
             {dragState && dropTarget && draggedNode && (
@@ -875,18 +851,15 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
                   left: insertionPlaceholderX(
                     dropTarget.parentId,
                     layout.nodes,
-                    mindMapLayoutMode,
                     dropTarget.sortIndex,
-                    dragState.nodeId,
                   ),
                   top: insertionPlaceholderY(
                     dropTarget.parentId,
                     dropTarget.sortIndex,
                     layout.nodes,
                     dragState.nodeId,
-                    mindMapLayoutMode,
                   ),
-                  width: NODE_WIDTH,
+                  width: nodeDims.width,
                   height: SUGGESTION_SLOT_HEIGHT,
                 }}
                 layout
@@ -1020,23 +993,17 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
                 settingsRef={settingsRef}
                 onToggle={() => setCanvasSettingsOpen((open) => !open)}
               />
-              <div ref={settingsPanelRef}>
-                <MindMapCanvasSettingsPanel
-                  open={canvasSettingsOpen}
-                  scale={canvas.scale}
-                  mindMapLayoutMode={mindMapLayoutMode}
-                  folderRayLength={activeFolderRayLength}
-                  minFolderRayLength={minFolderRayLength}
-                  maxFolderRayLength={maxFolderRayLength}
-                  onZoomIn={() => setCanvas({ scale: Math.min(2, canvas.scale + 0.1) })}
-                  onZoomOut={() => setCanvas({ scale: Math.max(0.35, canvas.scale - 0.1) })}
-                  onFolderRayLengthChange={setRadialFolderRayLength}
-                  onReset={() => {
-                    resetCanvasView();
-                    setCanvasSettingsOpen(false);
-                  }}
-                />
-              </div>
+              <MindMapCanvasSettingsPanel
+                open={canvasSettingsOpen}
+                settingsPanelRef={settingsPanelRef}
+                scale={canvas.scale}
+                onZoomIn={handleCanvasZoomIn}
+                onZoomOut={handleCanvasZoomOut}
+                onReset={() => {
+                  resetCanvasView();
+                  setCanvasSettingsOpen(false);
+                }}
+              />
             </>
           )}
 
@@ -1094,8 +1061,6 @@ function CanvasToolbar({
   rootCount,
   isHealthRoot,
   healthViewMode,
-  mindMapLayoutMode,
-  onToggleMindMapLayout,
   onToggleHealthView,
   onOpenMap,
   onAddRoot,
@@ -1104,14 +1069,10 @@ function CanvasToolbar({
   rootCount: number;
   isHealthRoot?: boolean;
   healthViewMode?: 'body' | 'tree';
-  mindMapLayoutMode?: 'classic' | 'radial';
-  onToggleMindMapLayout?: () => void;
   onToggleHealthView?: () => void;
   onOpenMap: () => void;
   onAddRoot: () => void;
 }) {
-  const isRadial = mindMapLayoutMode === 'radial';
-
   return (
     <div className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface)]/80 px-4 py-2 backdrop-blur">
       <button
@@ -1145,24 +1106,6 @@ function CanvasToolbar({
         </button>
       )}
       <div className="ml-auto flex items-center gap-1">
-        {onToggleMindMapLayout && (
-          <button
-            type="button"
-            onClick={onToggleMindMapLayout}
-            className={cn(
-              'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition',
-              isRadial
-                ? 'bg-[var(--color-accent-soft)] text-[var(--color-accent)]'
-                : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]',
-            )}
-            title={isRadial ? t('common.rays') : t('common.tree')}
-          >
-            {isRadial ? <Sun size={14} /> : <TreePine size={14} />}
-            <span className="hidden sm:inline">
-              {isRadial ? t('common.rays') : t('common.tree')}
-            </span>
-          </button>
-        )}
         <button
           type="button"
           onClick={onOpenMap}
@@ -1251,6 +1194,10 @@ function MindMapNodeCard({
   }, [isEditing, node.id, isPending]);
 
   const placeholderName = defaultFolderName ?? t('vault.defaultFolderName');
+  const nodeDims = readMindMapNodeDims();
+  const fileBorderColor = !isFolder
+    ? getFileTypeBorderColor(document?.mimeType, document?.title ?? node.name)
+    : null;
 
   const commitRename = () => {
     if (committedRef.current) return;
@@ -1271,8 +1218,8 @@ function MindMapNodeCard({
       style={{
         left: x,
         top: y,
-        width: NODE_WIDTH,
-        height: NODE_HEIGHT,
+        width: nodeDims.width,
+        height: nodeDims.height,
         zIndex: isDragging ? 40 : isEditing ? 35 : undefined,
       }}
       className={cn(
@@ -1296,7 +1243,7 @@ function MindMapNodeCard({
     >
       {onAddChild && (
         <div
-          className="absolute top-[18px] left-full z-20 flex items-center opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+          className="absolute top-1/2 left-full z-20 flex -translate-y-1/2 items-center opacity-0 transition-opacity duration-150 group-hover:opacity-100"
           style={{ pointerEvents: 'none' }}
         >
           <div className="h-px w-7 origin-left -rotate-[18deg] bg-[var(--color-border)]" />
@@ -1317,18 +1264,23 @@ function MindMapNodeCard({
 
       <div
         className={cn(
-          'flex h-full items-center gap-2 rounded-2xl border px-3 shadow-sm transition',
+          'relative flex h-full items-center rounded-2xl border shadow-sm transition',
           isFolder
             ? 'border-[var(--color-border)] bg-[var(--color-surface)]'
             : 'border-[var(--color-border)] bg-[var(--color-surface-2)]',
+          !isFolder && fileBorderColor && 'border-[1.5px]',
           selected && 'border-[var(--color-accent)] ring-2 ring-[var(--color-accent)]/25',
           isPending && 'border-[var(--color-accent)] ring-2 ring-[var(--color-accent)]/20',
-          node.parentId === null && isFolder && 'rounded-full px-5',
+          node.parentId === null && isFolder && 'rounded-full',
         )}
+        style={{
+          padding: 'var(--mind-map-node-padding)',
+          ...(!isFolder && fileBorderColor ? { borderColor: fileBorderColor } : {}),
+        }}
       >
         <button
           type="button"
-          className="shrink-0 rounded p-0.5 text-[var(--color-muted)] opacity-0 transition hover:bg-[var(--color-surface-2)] group-hover:opacity-100"
+          className="absolute top-1/2 left-0 z-10 -translate-x-1 -translate-y-1/2 rounded p-0.5 text-[var(--color-muted)] opacity-0 transition hover:bg-[var(--color-surface-2)] group-hover:opacity-100"
           title={t('vault.dragToReorder')}
           onPointerDown={(e) => {
             e.stopPropagation();
@@ -1338,21 +1290,22 @@ function MindMapNodeCard({
           <GripVertical size={14} />
         </button>
 
-        <div className="flex min-w-0 flex-1 items-center gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-1">
           {isFolder ? (
-            <Folder size={16} className="shrink-0 text-[var(--color-accent)]" />
+            <Folder size={32} className="shrink-0 text-[var(--color-accent)]" />
           ) : (
             <FileTypeIcon
               mimeType={document?.mimeType}
               filename={document?.title ?? node.name}
-              size={18}
+              size={32}
             />
           )}
           {isEditing ? (
             <div className="relative min-w-0 flex-1">
               {!name.trim() && (
                 <span
-                  className="pointer-events-none absolute inset-0 truncate px-1 text-sm text-[var(--color-muted)]/55"
+                  className="pointer-events-none absolute inset-0 truncate text-[var(--color-muted)]/55"
+                  style={{ fontSize: 'var(--mind-map-node-font-size)', lineHeight: 1 }}
                   aria-hidden
                 >
                   {placeholderName}
@@ -1360,7 +1313,8 @@ function MindMapNodeCard({
               )}
               <input
                 ref={inputRef}
-                className="relative z-[1] w-full rounded border border-[var(--color-accent)]/40 bg-transparent px-1 text-sm outline-none ring-2 ring-[var(--color-accent)]/15"
+                className="relative z-[1] w-full rounded border border-[var(--color-accent)]/40 bg-transparent outline-none ring-2 ring-[var(--color-accent)]/15"
+                style={{ fontSize: 'var(--mind-map-node-font-size)', lineHeight: 1 }}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 onBlur={commitRename}
@@ -1381,7 +1335,8 @@ function MindMapNodeCard({
           ) : (
             <button
               type="button"
-              className="min-w-0 flex-1 truncate text-left text-sm font-medium"
+              className="min-w-0 flex-1 truncate text-left font-medium"
+              style={{ fontSize: 'var(--mind-map-node-font-size)', lineHeight: 1 }}
               onClick={onSelect}
             >
               {node.name}
@@ -1392,7 +1347,7 @@ function MindMapNodeCard({
         {!isEditing && (
           <button
             type="button"
-            className="rounded p-1 opacity-0 group-hover:opacity-100 hover:bg-[var(--color-surface-2)]"
+            className="-mr-0.5 shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-[var(--color-surface-2)]"
             onClick={onContextMenu}
           >
             <MoreHorizontal size={14} />

@@ -79,6 +79,18 @@ function extensionFromFilename(filename?: string | null): string {
   return base.slice(dot + 1).toLowerCase();
 }
 
+export const FILE_TYPE_BORDER_COLOR: Record<FileTypeKind, string> = {
+  pdf: '#E74C3C',
+  word: '#2B579A',
+  excel: '#217346',
+  powerpoint: '#D24726',
+  image: '#7C3AED',
+  text: '#64748B',
+  archive: '#CA8A04',
+  video: '#DB2777',
+  generic: '#94A3B8',
+};
+
 function labelForKind(kind: FileTypeKind, extension: string): string {
   if (extension) return extension.toLowerCase();
   switch (kind) {
@@ -101,6 +113,14 @@ function labelForKind(kind: FileTypeKind, extension: string): string {
     default:
       return 'file';
   }
+}
+
+export function getFileTypeBorderColor(
+  mimeType?: string | null,
+  filename?: string | null,
+): string {
+  const { kind } = resolveFileType(mimeType, filename);
+  return FILE_TYPE_BORDER_COLOR[kind];
 }
 
 export function resolveFileType(

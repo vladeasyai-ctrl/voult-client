@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { Folder, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { t } from '@/lib/i18n';
-import { NODE_HEIGHT, NODE_WIDTH } from '@/lib/mind-map-layout';
+import { getMindMapNodeHeight, getMindMapNodeWidth } from '@/lib/mind-map-node-theme';
 import type { TreeNode } from '@/lib/types';
 import { FileTypeIcon } from '@/components/ui/file-type-icon';
 
@@ -115,8 +115,8 @@ export function nodeViewportBox(
   return {
     left: canvas.x + positioned.x * canvas.scale,
     top: canvas.y + positioned.y * canvas.scale,
-    width: NODE_WIDTH * canvas.scale,
-    height: NODE_HEIGHT * canvas.scale,
+    width: getMindMapNodeWidth() * canvas.scale,
+    height: getMindMapNodeHeight() * canvas.scale,
   };
 }
 
