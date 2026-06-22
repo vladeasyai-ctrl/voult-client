@@ -9,6 +9,7 @@ import {
   GripVertical,
   Map,
   MoreHorizontal,
+  Network,
   Pencil,
   Plus,
   Trash2,
@@ -18,6 +19,7 @@ import { cn } from '@/lib/cn';
 import { t } from '@/lib/i18n';
 import { en } from '@/lib/i18n/en';
 import { buildMindMapLayout } from '@/lib/mind-map-layout';
+import { buildRadialMindMapLayout } from '@/lib/mind-map-radial-layout';
 import { readMindMapNodeDims } from '@/lib/mind-map-node-theme';
 import { getFileTypeBorderColor } from '@/lib/file-type';
 import {
@@ -38,6 +40,7 @@ import type { DropTarget, TreeNode } from '@/lib/types';
 import { AI_IMPORT_UNSUPPORTED_HINT, isAiImportFile } from '@/lib/ai-import';
 import { useVaultData, useVaultMutations } from '@/hooks/use-vault-data';
 import { useVaultStore } from '@/stores/vault-store';
+import type { VaultLayoutMode } from '@/stores/vault-store';
 import { NameDialog } from '@/components/vault/name-dialog';
 import { FileTypeIcon } from '@/components/ui/file-type-icon';
 import { PresetPicker } from '@/components/vault/preset-picker';
@@ -116,6 +119,8 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
   const setActiveRootId = useVaultStore((s) => s.setActiveRootId);
   const healthViewMode = useVaultStore((s) => s.healthViewMode);
   const setHealthViewMode = useVaultStore((s) => s.setHealthViewMode);
+  const layoutMode = useVaultStore((s) => s.layoutMode);
+  const setLayoutMode = useVaultStore((s) => s.setLayoutMode);
   const resetCanvasView = useVaultStore((s) => s.resetCanvasView);
   const reorderNodeLocal = useVaultStore((s) => s.reorderNodeLocal);
   const moveNodeLocal = useVaultStore((s) => s.moveNodeLocal);
@@ -210,9 +215,17 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
     }
   }, [isLoading, onboarded, tree.length, rootFolders.length, setOnboarded]);
 
+  const buildLayout = useCallback(
+    (roots: TreeNode[]) =>
+      layoutMode === 'radial'
+        ? buildRadialMindMapLayout(roots)
+        : buildMindMapLayout(roots),
+    [layoutMode],
+  );
+
   const baseLayout = useMemo(
-    () => buildMindMapLayout(displayTree),
-    [displayTree],
+    () => buildLayout(displayTree),
+    [buildLayout, displayTree],
   );
 
   const treeForLayout = useMemo(() => {
@@ -226,8 +239,8 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
   }, [displayTree, dragState, dropTarget]);
 
   const layout = useMemo(
-    () => buildMindMapLayout(treeForLayout),
-    [treeForLayout],
+    () => buildLayout(treeForLayout),
+    [buildLayout, treeForLayout],
   );
 
   useEffect(() => {
@@ -797,6 +810,10 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
           onToggleHealthView={() =>
             setHealthViewMode(healthViewMode === 'body' ? 'tree' : 'body')
           }
+          layoutMode={layoutMode}
+          onToggleLayoutMode={() =>
+            setLayoutMode(layoutMode === 'tree' ? 'radial' : 'tree')
+          }
           onOpenMap={() => setShowRootMap(true)}
           onAddRoot={handleAddRoot}
         />
@@ -842,9 +859,10 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
               width={layout.width}
               height={layout.height}
               edges={layout.edges}
+              layoutMode={layoutMode}
             />
 
-            {dragState && dropTarget && draggedNode && (
+            {layoutMode === 'tree' && dragState && dropTarget && draggedNode && (
               <motion.div
                 className="absolute rounded-2xl border-2 border-dashed border-[var(--color-accent)]/50 bg-[var(--color-accent-soft)]/40"
                 style={{
@@ -1062,6 +1080,8 @@ function CanvasToolbar({
   isHealthRoot,
   healthViewMode,
   onToggleHealthView,
+  layoutMode,
+  onToggleLayoutMode,
   onOpenMap,
   onAddRoot,
 }: {
@@ -1070,6 +1090,8 @@ function CanvasToolbar({
   isHealthRoot?: boolean;
   healthViewMode?: 'body' | 'tree';
   onToggleHealthView?: () => void;
+  layoutMode: VaultLayoutMode;
+  onToggleLayoutMode: () => void;
   onOpenMap: () => void;
   onAddRoot: () => void;
 }) {
@@ -1119,6 +1141,22 @@ function CanvasToolbar({
               {rootCount}
             </span>
           )}
+        </button>
+        <button
+          type="button"
+          onClick={onToggleLayoutMode}
+          className={cn(
+            'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition',
+            layoutMode === 'radial'
+              ? 'bg-[var(--color-accent-soft)] text-[var(--color-accent)]'
+              : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]',
+          )}
+          title={layoutMode === 'radial' ? t('common.tree') : t('common.radial')}
+        >
+          <Network size={14} />
+          <span className="hidden sm:inline">
+            {layoutMode === 'radial' ? t('common.tree') : t('common.radial')}
+          </span>
         </button>
       </div>
     </div>

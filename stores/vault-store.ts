@@ -20,6 +20,8 @@ import {
   replaceNodeIdInTree,
 } from '@/lib/tree-mutations';
 
+export type VaultLayoutMode = 'tree' | 'radial';
+
 interface VaultState {
   tree: TreeNode[];
   documents: Document[];
@@ -33,6 +35,7 @@ interface VaultState {
   onboarded: boolean;
   activeRootId: string | null;
   healthViewMode: 'body' | 'tree';
+  layoutMode: VaultLayoutMode;
   canvas: { x: number; y: number; scale: number };
   setTree: (tree: TreeNode[]) => void;
   setDocuments: (documents: Document[]) => void;
@@ -65,6 +68,7 @@ interface VaultState {
   setOnboarded: (value: boolean) => void;
   setActiveRootId: (id: string | null) => void;
   setHealthViewMode: (mode: 'body' | 'tree') => void;
+  setLayoutMode: (mode: VaultLayoutMode) => void;
   resetCanvasView: () => void;
   setCanvas: (canvas: Partial<{ x: number; y: number; scale: number }>) => void;
 }
@@ -84,6 +88,7 @@ export const useVaultStore = create<VaultState>()(
       onboarded: false,
       activeRootId: null,
       healthViewMode: 'body',
+      layoutMode: 'tree',
       canvas: { x: 0, y: 0, scale: 1 },
       setTree: (tree) => set({ tree }),
       setDocuments: (documents) => set({ documents }),
@@ -166,6 +171,7 @@ export const useVaultStore = create<VaultState>()(
       setOnboarded: (value) => set({ onboarded: value }),
       setActiveRootId: (id) => set({ activeRootId: id }),
       setHealthViewMode: (mode) => set({ healthViewMode: mode }),
+      setLayoutMode: (mode) => set({ layoutMode: mode }),
       resetCanvasView: () =>
         set({
           canvas: { x: 0, y: 0, scale: 1 },
@@ -181,6 +187,7 @@ export const useVaultStore = create<VaultState>()(
         onboarded: s.onboarded,
         activeRootId: s.activeRootId,
         healthViewMode: s.healthViewMode,
+        layoutMode: s.layoutMode,
         canvas: s.canvas,
         nodeOrder: s.nodeOrder,
       }),

@@ -25,6 +25,7 @@ export const en = {
     updated: 'Updated',
     map: 'Map',
     tree: 'Tree',
+    radial: 'Neural',
     bodyMap: 'Body map',
     xray: 'X-ray',
     rename: 'Rename',
