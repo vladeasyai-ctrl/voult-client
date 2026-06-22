@@ -1,13 +1,15 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { FileText, Folder, Upload } from 'lucide-react';
+import { Folder, Upload } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { cn } from '@/lib/cn';
 import { getBreadcrumb, getChildren } from '@/lib/tree-utils';
 import type { DropTarget } from '@/lib/types';
 import { useVaultStore } from '@/stores/vault-store';
 import { Breadcrumbs } from '@/components/vault/breadcrumbs';
+import { FileTypeIcon } from '@/components/ui/file-type-icon';
+import { t } from '@/lib/i18n';
 
 interface FolderContentProps {
   onUploadFiles: (files: File[], target?: DropTarget) => Promise<void>;
@@ -82,13 +84,13 @@ export function FolderContent({ onUploadFiles }: FolderContentProps) {
                 <Upload size={28} />
               </div>
               <h2 className="font-[family-name:var(--font-display)] text-2xl">
-                Перетащите файлы сюда
+                {t('vault.dropFilesHere')}
               </h2>
               <p className="mt-2 max-w-sm text-sm text-[var(--color-muted)]">
-                Бросьте документы, фото или PDF — они станут частью вашего архива
+                {t('vault.dropFilesHint')}
               </p>
               <label className="mt-6 cursor-pointer rounded-xl bg-[var(--color-accent)] px-5 py-2.5 text-sm text-white">
-                Выбрать файлы
+                {t('vault.pickFiles')}
                 <input
                   type="file"
                   multiple
@@ -125,13 +127,17 @@ export function FolderContent({ onUploadFiles }: FolderContentProps) {
                   {isFolder ? (
                     <Folder size={22} className="text-[var(--color-accent)]" />
                   ) : (
-                    <FileText size={22} className="text-[var(--color-muted)]" />
+                    <FileTypeIcon
+                      mimeType={doc?.mimeType}
+                      filename={doc?.title ?? node.name}
+                      size={24}
+                    />
                   )}
                 </div>
                 <div>
                   <p className="line-clamp-2 font-medium">{node.name}</p>
                   <p className="mt-1 text-xs text-[var(--color-muted)]">
-                    {isFolder ? 'Папка' : 'Документ'}
+                    {isFolder ? t('common.folder') : t('common.document')}
                   </p>
                 </div>
               </motion.button>
@@ -142,7 +148,7 @@ export function FolderContent({ onUploadFiles }: FolderContentProps) {
         {uploading && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/10 backdrop-blur-[1px]">
             <div className="rounded-xl bg-[var(--color-surface)] px-6 py-3 text-sm shadow-lg">
-              Загрузка…
+              {t('common.loading')}
             </div>
           </div>
         )}

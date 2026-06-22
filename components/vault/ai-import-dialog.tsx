@@ -4,6 +4,7 @@ import { Loader2, Sparkles, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/cn';
 import { AI_IMPORT_ACCEPT } from '@/lib/ai-import';
+import { t } from '@/lib/i18n';
 import type { ImportProposal } from '@/lib/types';
 import { useAiImport } from '@/hooks/use-ai-import';
 
@@ -81,7 +82,7 @@ export function AiImportDialog({ open, onClose, initialFile }: AiImportDialogPro
       summary: summary.trim(),
       tags: tags
         .split(',')
-        .map((t) => t.trim())
+        .map((tag) => tag.trim())
         .filter(Boolean),
       folderPath: folderPath
         .split('/')
@@ -102,7 +103,7 @@ export function AiImportDialog({ open, onClose, initialFile }: AiImportDialogPro
         <div className="flex items-center justify-between border-b border-[var(--color-border)] px-5 py-4">
           <div className="flex items-center gap-2">
             <Sparkles size={18} className="text-[var(--color-accent)]" />
-            <h2 className="font-[family-name:var(--font-display)] text-lg">AI-импорт</h2>
+            <h2 className="font-[family-name:var(--font-display)] text-lg">{t('vault.aiImportTitle')}</h2>
           </div>
           <button
             type="button"
@@ -116,14 +117,14 @@ export function AiImportDialog({ open, onClose, initialFile }: AiImportDialogPro
         <div className="space-y-4 p-5">
           {fileName && (
             <p className="text-sm text-[var(--color-muted)]">
-              Файл: <span className="text-[var(--color-text)]">{fileName}</span>
+              {t('vault.aiImportFile')}: <span className="text-[var(--color-text)]">{fileName}</span>
             </p>
           )}
 
           {!session && !busy && (
             <label className="flex cursor-pointer flex-col items-center gap-3 rounded-2xl border border-dashed border-[var(--color-border)] p-8 text-center hover:border-[var(--color-accent)]">
               <Sparkles size={24} className="text-[var(--color-accent)]" />
-              <span className="text-sm">Выберите фото или PDF для AI-импорта</span>
+              <span className="text-sm">{t('vault.aiImportPickFile')}</span>
               <input
                 type="file"
                 accept={AI_IMPORT_ACCEPT}
@@ -139,7 +140,7 @@ export function AiImportDialog({ open, onClose, initialFile }: AiImportDialogPro
           {analyzing && (
             <div className="flex items-center gap-3 rounded-xl bg-[var(--color-surface-2)] px-4 py-3 text-sm">
               <Loader2 size={16} className="animate-spin text-[var(--color-accent)]" />
-              AI анализирует файл…
+              {t('vault.aiAnalyzing')}
             </div>
           )}
 
@@ -153,13 +154,15 @@ export function AiImportDialog({ open, onClose, initialFile }: AiImportDialogPro
             <div className="space-y-3">
               {session.proposal!.createMissingFolders && (
                 <p className="rounded-lg bg-[var(--color-accent-soft)] px-3 py-2 text-xs text-[var(--color-accent)]">
-                  Будут созданы папки: {session.proposal!.folderPath.join(' → ')}
+                  {t('vault.aiFoldersWillBeCreated', {
+                    path: session.proposal!.folderPath.join(' → '),
+                  })}
                 </p>
               )}
-              <Field label="Название">
+              <Field label={t('common.name')}>
                 <input value={title} onChange={(e) => setTitle(e.target.value)} className={inputClassName} />
               </Field>
-              <Field label="Краткое описание (для поиска)">
+              <Field label={t('vault.aiSummaryLabel')}>
                 <textarea
                   value={summary}
                   onChange={(e) => setSummary(e.target.value)}
@@ -167,15 +170,15 @@ export function AiImportDialog({ open, onClose, initialFile }: AiImportDialogPro
                   className={cn(inputClassName, 'resize-none')}
                 />
               </Field>
-              <Field label="Папка (через / )">
+              <Field label={t('vault.aiFolderPathLabel')}>
                 <input
                   value={folderPath}
                   onChange={(e) => setFolderPath(e.target.value)}
                   className={inputClassName}
-                  placeholder="Документы / Личное / Паспорта"
+                  placeholder={t('vault.aiFolderPathPlaceholder')}
                 />
               </Field>
-              <Field label="Теги (через запятую)">
+              <Field label={t('vault.aiTagsLabel')}>
                 <input value={tags} onChange={(e) => setTags(e.target.value)} className={inputClassName} />
               </Field>
             </div>
@@ -189,7 +192,7 @@ export function AiImportDialog({ open, onClose, initialFile }: AiImportDialogPro
             disabled={busy}
             className="rounded-xl px-4 py-2 text-sm text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]"
           >
-            Отклонить
+            {t('common.reject')}
           </button>
           {ready && (
             <button
@@ -201,7 +204,7 @@ export function AiImportDialog({ open, onClose, initialFile }: AiImportDialogPro
                 'hover:opacity-90 disabled:opacity-50',
               )}
             >
-              Подтвердить
+              {t('common.confirm')}
             </button>
           )}
         </div>

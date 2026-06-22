@@ -3,6 +3,7 @@
 import { motion } from 'framer-motion';
 import { VAULT_PRESETS, type VaultPreset } from '@/lib/presets';
 import { cn } from '@/lib/cn';
+import { t } from '@/lib/i18n';
 
 interface PresetPickerProps {
   onSelect: (preset: VaultPreset) => void;
@@ -18,14 +19,13 @@ export function PresetPicker({ onSelect, onSkip }: PresetPickerProps) {
         className="w-full max-w-2xl rounded-3xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 shadow-2xl"
       >
         <p className="text-xs uppercase tracking-[0.2em] text-[var(--color-muted)]">
-          Добро пожаловать
+          {t('vault.welcome')}
         </p>
         <h2 className="mt-2 font-[family-name:var(--font-display)] text-3xl">
-          С чего начнём ваш архив?
+          {t('vault.presetPickerTitle')}
         </h2>
         <p className="mt-2 max-w-lg text-sm text-[var(--color-muted)]">
-          Выберите пресет — мы создадим корневую ветку, а дальше вы сможете
-          растить дерево кликами, как на mind-map.
+          {t('vault.presetPickerSubtitle')}
         </p>
 
         <div className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -61,7 +61,7 @@ export function PresetPicker({ onSelect, onSkip }: PresetPickerProps) {
           onClick={onSkip}
           className="mt-6 text-sm text-[var(--color-muted)] underline-offset-4 hover:underline"
         >
-          Пропустить — начать с пустого холста
+          {t('vault.skipPreset')}
         </button>
       </motion.div>
     </div>

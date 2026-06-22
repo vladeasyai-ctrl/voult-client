@@ -12,6 +12,7 @@ import {
   type HealthBodyRegion,
   type HealthFolderTemplate,
 } from '@/lib/health-body-map';
+import { t } from '@/lib/i18n';
 import type { Document, TreeNode } from '@/lib/types';
 import { HealthBodyRegionView } from '@/components/vault/health-body-region-view';
 import { HealthBodySilhouette } from '@/components/vault/health-body-silhouette';
@@ -101,7 +102,7 @@ export function HealthBodyCanvas({
           </span>
           <div>
             <p className="text-xs text-cyan-200/50">
-              Рентген-карта · {totalDocs} док.
+              {t('vault.healthXrayMap', { count: totalDocs })}
             </p>
             <h2 className="font-[family-name:var(--font-display)] text-lg text-cyan-50">
               {root.name}
@@ -114,7 +115,7 @@ export function HealthBodyCanvas({
           className="flex items-center gap-1.5 rounded-lg border border-cyan-500/20 bg-slate-900/80 px-3 py-1.5 text-xs text-cyan-200/70 transition hover:border-cyan-400/40 hover:bg-slate-800 hover:text-cyan-100"
         >
           <GitBranch size={13} />
-          Дерево
+          {t('common.tree')}
         </button>
       </div>
 
@@ -155,9 +156,7 @@ export function HealthBodyCanvas({
       </div>
 
       <div className="relative z-[1] shrink-0 border-t border-cyan-500/10 px-4 py-2.5 text-center text-xs text-cyan-200/45">
-        {activeRegion
-          ? 'Выберите папку · Число в скобках — загруженные документы'
-          : 'Нажмите на подсвеченную область тела'}
+        {activeRegion ? t('vault.healthSelectFolder') : t('vault.healthTapRegion')}
       </div>
     </div>
   );

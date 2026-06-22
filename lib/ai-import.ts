@@ -1,3 +1,5 @@
+import { t } from '@/lib/i18n';
+
 /** Files supported by AI import (backend OpenAiDocumentAiAnalyzer). */
 export function isAiImportFile(file: File): boolean {
   if (file.type.startsWith('image/')) return true;
@@ -7,5 +9,4 @@ export function isAiImportFile(file: File): boolean {
 
 export const AI_IMPORT_ACCEPT = 'image/*,application/pdf,.pdf';
 
-export const AI_IMPORT_UNSUPPORTED_HINT =
-  'AI-импорт поддерживает фото (image/*) и PDF';
+export const AI_IMPORT_UNSUPPORTED_HINT = t('vault.aiImportSupported');

@@ -12,6 +12,7 @@ import {
 import { useEffect } from 'react';
 import { cn } from '@/lib/cn';
 import { clearToken } from '@/lib/auth';
+import { t } from '@/lib/i18n';
 import { useRouter } from 'next/navigation';
 import { useThemeStore } from '@/stores/vault-store';
 import { useVaultStore } from '@/stores/vault-store';
@@ -45,7 +46,7 @@ export function TopBar({ onRefresh, onOpenAiImport }: TopBarProps) {
         className="ml-4 flex flex-1 max-w-xl items-center gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-4 py-2 text-sm text-[var(--color-muted)] transition hover:border-[var(--color-accent)]"
       >
         <Search size={15} />
-        <span>Поиск и команды…</span>
+        <span>{t('vault.searchPlaceholder')}</span>
         <kbd className="ml-auto rounded-md border border-[var(--color-border)] px-1.5 py-0.5 text-xs">
           Ctrl K
         </kbd>
@@ -57,14 +58,14 @@ export function TopBar({ onRefresh, onOpenAiImport }: TopBarProps) {
         className="inline-flex items-center gap-2 rounded-xl bg-[var(--color-accent)] px-3 py-2 text-sm text-white hover:opacity-90"
       >
         <Sparkles size={15} />
-        AI-импорт
+        {t('vault.aiImport')}
       </button>
 
       <button
         type="button"
         onClick={onRefresh}
         className="rounded-lg p-2 text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]"
-        title="Обновить"
+        title={t('common.refresh')}
       >
         <RefreshCw size={16} />
       </button>
@@ -73,7 +74,7 @@ export function TopBar({ onRefresh, onOpenAiImport }: TopBarProps) {
         type="button"
         onClick={toggleRightPanel}
         className="rounded-lg p-2 text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]"
-        title="Панель деталей"
+        title={t('vault.detailsPanel')}
       >
         {rightPanelOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
       </button>
@@ -97,7 +98,7 @@ export function TopBar({ onRefresh, onOpenAiImport }: TopBarProps) {
           'hover:bg-[var(--color-surface-2)]',
         )}
       >
-        Выйти
+        {t('common.signOut')}
       </button>
     </header>
   );

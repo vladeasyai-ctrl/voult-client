@@ -17,6 +17,7 @@ export interface Document {
   title: string;
   description: string | null;
   aiSummary: string | null;
+  mimeType: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -78,21 +79,6 @@ export interface ConfirmImportPayload {
   tags: string[];
   folderPath: string[];
   parentId: string | null;
-}
-
-export interface AiSettings {
-  provider: string;
-  model: string;
-  baseUrl: string;
-  apiKeyConfigured: boolean;
-  apiKeyHint: string | null;
-}
-
-export interface UpdateAiSettingsPayload {
-  provider: string;
-  apiKey?: string;
-  model?: string;
-  baseUrl?: string;
 }
 
 export interface AiPlanAction {

@@ -1,8 +1,8 @@
 import { formatDistanceToNow } from 'date-fns';
-import { ru } from 'date-fns/locale';
+import { enUS } from 'date-fns/locale';
 
 export function formatRelative(date: string) {
-  return formatDistanceToNow(new Date(date), { addSuffix: true, locale: ru });
+  return formatDistanceToNow(new Date(date), { addSuffix: true, locale: enUS });
 }
 
 export function formatBytes(bytes: number) {
@@ -12,9 +12,9 @@ export function formatBytes(bytes: number) {
 }
 
 export function formatDate(date: string) {
-  return new Intl.DateTimeFormat('ru-RU', {
+  return new Intl.DateTimeFormat('en-US', {
     day: 'numeric',
-    month: 'long',
+    month: 'short',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',

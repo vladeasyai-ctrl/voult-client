@@ -3,6 +3,7 @@
 import { Check, Loader2, Sparkles, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { cn } from '@/lib/cn';
+import { t } from '@/lib/i18n';
 import type { DropTarget, ImportProposal } from '@/lib/types';
 import { useAiImport } from '@/hooks/use-ai-import';
 
@@ -19,8 +20,8 @@ interface AiImportCardProps {
 
 function dropTargetLabel(target: DropTarget | null): string | null {
   if (!target) return null;
-  if (target.kind === 'folder') return 'выбранную папку';
-  return 'корень';
+  if (target.kind === 'folder') return t('vault.aiImportSelectedFolder');
+  return t('common.root');
 }
 
 export function AiImportCard({
@@ -93,7 +94,7 @@ export function AiImportCard({
       summary: summary.trim(),
       tags: tags
         .split(',')
-        .map((t) => t.trim())
+        .map((tag) => tag.trim())
         .filter(Boolean),
       folderPath: folderPath
         .split('/')
@@ -117,7 +118,7 @@ export function AiImportCard({
         <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
           <div className="flex items-center gap-2">
             <Sparkles size={16} className="text-[var(--color-accent)]" />
-            <h2 className="text-sm font-medium">AI-импорт</h2>
+            <h2 className="text-sm font-medium">{t('vault.aiImportTitle')}</h2>
           </div>
           <button
             type="button"
@@ -132,26 +133,26 @@ export function AiImportCard({
         <div className="space-y-3 p-4">
           {fileName && (
             <p className="text-xs text-[var(--color-muted)]">
-              Файл: <span className="text-[var(--color-text)]">{fileName}</span>
+              {t('vault.aiImportFile')}: <span className="text-[var(--color-text)]">{fileName}</span>
             </p>
           )}
 
           {targetHint && !ready && (
             <p className="text-xs text-[var(--color-muted)]">
-              Цель: <span className="text-[var(--color-text)]">{targetHint}</span>
+              {t('vault.aiImportTarget')}: <span className="text-[var(--color-text)]">{targetHint}</span>
             </p>
           )}
 
           {(analyzing || (!session && busy)) && (
             <div className="flex items-center gap-2 rounded-xl bg-[var(--color-surface-2)] px-3 py-2.5 text-sm">
               <Loader2 size={14} className="animate-spin text-[var(--color-accent)]" />
-              AI анализирует файл…
+              {t('vault.aiAnalyzing')}
             </div>
           )}
 
           {(error || failed) && (
             <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
-              {error ?? session?.errorMessage ?? 'Ошибка анализа'}
+              {error ?? session?.errorMessage ?? t('vault.aiAnalysisError')}
             </div>
           )}
 
@@ -159,14 +160,16 @@ export function AiImportCard({
             <>
               {session.proposal!.createMissingFolders && (
                 <p className="rounded-lg bg-[var(--color-accent-soft)] px-3 py-2 text-xs text-[var(--color-accent)]">
-                  AI предлагает создать новые папки: {session.proposal!.folderPath.join(' → ')}
+                  {t('vault.aiProposesFolders', {
+                    path: session.proposal!.folderPath.join(' → '),
+                  })}
                 </p>
               )}
 
-              <Field label="Название">
+              <Field label={t('common.name')}>
                 <input value={title} onChange={(e) => setTitle(e.target.value)} className={inputClassName} />
               </Field>
-              <Field label="Описание">
+              <Field label={t('vault.aiDescriptionLabel')}>
                 <textarea
                   value={summary}
                   onChange={(e) => setSummary(e.target.value)}
@@ -174,16 +177,18 @@ export function AiImportCard({
                   className={cn(inputClassName, 'resize-none')}
                 />
               </Field>
-              <Field label="Папка (через / )">
+              <Field label={t('vault.aiFolderPathLabel')}>
                 <input value={folderPath} onChange={(e) => setFolderPath(e.target.value)} className={inputClassName} />
               </Field>
-              <Field label="Теги">
+              <Field label={t('vault.aiTagsLabel')}>
                 <input value={tags} onChange={(e) => setTags(e.target.value)} className={inputClassName} />
               </Field>
 
               {session.proposal!.confidence != null && (
                 <p className="text-xs text-[var(--color-muted)]">
-                  Уверенность AI: {Math.round(session.proposal!.confidence * 100)}%
+                  {t('vault.aiConfidence', {
+                    percent: Math.round(session.proposal!.confidence * 100),
+                  })}
                 </p>
               )}
             </>
@@ -197,7 +202,7 @@ export function AiImportCard({
             disabled={busy}
             className="rounded-xl px-3 py-1.5 text-xs text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]"
           >
-            Отклонить
+            {t('common.reject')}
           </button>
           {ready && (
             <button
@@ -210,7 +215,7 @@ export function AiImportCard({
               )}
             >
               <Check size={14} />
-              Подтвердить
+              {t('common.confirm')}
             </button>
           )}
         </div>

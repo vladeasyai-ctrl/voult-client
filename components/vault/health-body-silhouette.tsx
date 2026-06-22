@@ -1,6 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/cn';
+import { t } from '@/lib/i18n';
 import type { HealthBodyRegion } from '@/lib/health-body-map';
 
 interface HealthBodySilhouetteProps {
@@ -52,7 +53,7 @@ export function HealthBodySilhouette({
         <svg
           viewBox="0 0 200 400"
           className="relative z-[1] h-full w-full"
-          aria-label="Силуэт тела"
+          aria-label={t('vault.healthSilhouette')}
         >
           <defs>
             <linearGradient id="xray-body" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -216,7 +217,7 @@ export function HealthBodySilhouette({
               key={region.id}
               type="button"
               disabled={hidden}
-              aria-label={`${region.label}${docCount ? `, ${docCount} документов` : ''}`}
+              aria-label={t('vault.healthRegionDocs', { label: region.label, count: docCount })}
               onClick={() => onSelectRegion(region)}
               className={cn(
                 'group absolute z-[2] rounded-xl border transition-all duration-300',

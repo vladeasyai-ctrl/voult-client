@@ -1,5 +1,12 @@
-import type { PositionedNode } from './mind-map-layout';
-import { NODE_HEIGHT, NODE_WIDTH } from './mind-map-layout';
+import type { MindMapLayoutMode, PositionedNode } from './mind-map-layout';
+import {
+  averageChildDistance,
+  DOCUMENT_RADIAL_DISTANCE,
+  NODE_HEIGHT,
+  NODE_WIDTH,
+  orderedSiblings,
+  radialChildAngles,
+} from './mind-map-layout';
 import type { TreeNode } from './types';
 
 export interface CanvasPoint {
@@ -45,20 +52,42 @@ export function hitNodeAtPoint(
   return null;
 }
 
+function angleFromParentCenter(
+  point: CanvasPoint,
+  parentId: string | null,
+  positioned: PositionedNode[],
+): number {
+  const parent = positioned.find((p) => p.id === parentId);
+  if (!parent) return 0;
+  const cx = parent.x + NODE_WIDTH / 2;
+  const cy = parent.y + NODE_HEIGHT / 2;
+  return Math.atan2(point.y - cy, point.x - cx);
+}
+
 export function computeSortIndexForPoint(
-  pointY: number,
+  point: CanvasPoint,
   parentId: string | null,
   positioned: PositionedNode[],
   draggedId: string,
+  mode: MindMapLayoutMode = 'classic',
 ): number {
-  const siblings = positioned
-    .filter((p) => p.node.parentId === parentId && p.id !== draggedId)
-    .sort((a, b) => a.y - b.y);
+  const siblings = orderedSiblings(parentId, positioned, draggedId, mode);
+
+  if (mode === 'radial') {
+    const dropAngle = angleFromParentCenter(point, parentId, positioned);
+    let index = 0;
+    for (const sibling of siblings) {
+      if (dropAngle > (sibling.siblingAngle ?? 0)) {
+        index += 1;
+      }
+    }
+    return index;
+  }
 
   let index = 0;
   for (const sibling of siblings) {
     const midY = sibling.y + NODE_HEIGHT / 2;
-    if (pointY > midY) {
+    if (point.y > midY) {
       index += 1;
     }
   }
@@ -70,6 +99,7 @@ export function resolveDragDropTarget(
   draggedNode: TreeNode,
   positioned: PositionedNode[],
   tree: TreeNode[],
+  mode: MindMapLayoutMode = 'classic',
 ): DragDropTarget | null {
   const hit = hitNodeAtPoint(point, positioned, draggedNode.id);
 
@@ -78,7 +108,7 @@ export function resolveDragDropTarget(
     if (!isDescendant) {
       return {
         parentId: hit.id,
-        sortIndex: computeSortIndexForPoint(point.y, hit.id, positioned, draggedNode.id),
+        sortIndex: computeSortIndexForPoint(point, hit.id, positioned, draggedNode.id, mode),
       };
     }
   }
@@ -93,10 +123,11 @@ export function resolveDragDropTarget(
   return {
     parentId: draggedNode.parentId,
     sortIndex: computeSortIndexForPoint(
-      point.y,
+      point,
       draggedNode.parentId,
       positioned,
       draggedNode.id,
+      mode,
     ),
   };
 }
@@ -125,10 +156,13 @@ export function insertionPlaceholderY(
   sortIndex: number,
   positioned: PositionedNode[],
   draggedId: string,
+  mode: MindMapLayoutMode = 'classic',
 ): number {
-  const siblings = positioned
-    .filter((p) => p.node.parentId === parentId && p.id !== draggedId)
-    .sort((a, b) => a.y - b.y);
+  if (mode === 'radial') {
+    return radialInsertionPlaceholder(parentId, sortIndex, positioned, draggedId).y;
+  }
+
+  const siblings = orderedSiblings(parentId, positioned, draggedId, mode);
 
   if (siblings.length === 0) {
     const parent = positioned.find((p) => p.id === parentId);
@@ -150,7 +184,14 @@ export function insertionPlaceholderY(
 export function insertionPlaceholderX(
   parentId: string | null,
   positioned: PositionedNode[],
+  mode: MindMapLayoutMode = 'classic',
+  sortIndex = 0,
+  draggedId?: string,
 ): number {
+  if (mode === 'radial') {
+    return radialInsertionPlaceholder(parentId, sortIndex, positioned, draggedId).x;
+  }
+
   const sibling = positioned.find((p) => p.node.parentId === parentId);
   if (sibling) return sibling.x;
   if (parentId) {
@@ -158,6 +199,35 @@ export function insertionPlaceholderX(
     if (parent) return parent.x + NODE_WIDTH + 140;
   }
   return 80;
+}
+
+function radialInsertionPlaceholder(
+  parentId: string | null,
+  sortIndex: number,
+  positioned: PositionedNode[],
+  draggedId?: string,
+): { x: number; y: number } {
+  const parent = positioned.find((p) => p.id === parentId);
+  if (!parent) return { x: 80, y: 80 };
+
+  const siblings = orderedSiblings(parentId, positioned, draggedId, 'radial');
+  const childCount = siblings.length + 1;
+  const angles = radialChildAngles(childCount);
+  const angle = angles[Math.min(sortIndex, angles.length - 1)] ?? 0;
+
+  const cx = parent.x + NODE_WIDTH / 2;
+  const cy = parent.y + NODE_HEIGHT / 2;
+  const distance = siblings.length > 0
+    ? siblings.reduce((sum, sibling) => sum + (sibling.parentDistance ?? DOCUMENT_RADIAL_DISTANCE), 0) /
+      siblings.length
+    : averageChildDistance(parentId, positioned);
+  const centerX = cx + distance * Math.cos(angle);
+  const centerY = cy + distance * Math.sin(angle);
+
+  return {
+    x: centerX - NODE_WIDTH / 2,
+    y: centerY - NODE_HEIGHT / 2,
+  };
 }
 
 export const SUGGESTION_SLOT_HEIGHT = 48;

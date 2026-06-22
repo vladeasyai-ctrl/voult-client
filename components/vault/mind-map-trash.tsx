@@ -2,10 +2,12 @@
 
 import type { RefObject } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, Folder, Trash2 } from 'lucide-react';
+import { Folder, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { t } from '@/lib/i18n';
 import { NODE_HEIGHT, NODE_WIDTH } from '@/lib/mind-map-layout';
 import type { TreeNode } from '@/lib/types';
+import { FileTypeIcon } from '@/components/ui/file-type-icon';
 
 interface MindMapTrashZoneProps {
   active: boolean;
@@ -17,13 +19,15 @@ export function MindMapTrashZone({ active, denied, trashRef }: MindMapTrashZoneP
   return (
     <div
       ref={trashRef}
+      data-canvas-control
+      onPointerDown={(e) => e.stopPropagation()}
       className={cn(
         'absolute bottom-5 right-5 z-20 flex h-14 w-14 items-center justify-center rounded-2xl border shadow-lg backdrop-blur-sm transition-all duration-200',
         denied && 'animate-pulse border-red-400 bg-red-500/15',
         active && !denied && 'scale-110 border-red-400 bg-red-500/15 shadow-red-500/20',
         !active && !denied && 'border-[var(--color-border)] bg-[var(--color-surface)]/95',
       )}
-      title="Перетащите сюда, чтобы удалить"
+      title={t('vault.trashHint')}
     >
       <Trash2
         size={22}
@@ -92,7 +96,7 @@ export function MindMapDeleteFly({
         {isFolder ? (
           <Folder size={16} className="shrink-0 text-red-400" />
         ) : (
-          <FileText size={16} className="shrink-0 text-red-400/80" />
+          <FileTypeIcon filename={node.name} size={18} />
         )}
         <span className="truncate text-sm font-medium">{node.name}</span>
       </div>

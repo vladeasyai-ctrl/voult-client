@@ -2,6 +2,7 @@
 
 import { ChevronRight, Home } from 'lucide-react';
 import type { TreeNode } from '@/lib/types';
+import { t } from '@/lib/i18n';
 
 interface BreadcrumbsProps {
   items: TreeNode[];
@@ -18,7 +19,7 @@ export function Breadcrumbs({ items, onNavigate, onRoot }: BreadcrumbsProps) {
         className="flex items-center gap-1 rounded-lg px-2 py-1 text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]"
       >
         <Home size={14} />
-        <span>Хранилище</span>
+        <span>{t('vault.storage')}</span>
       </button>
       {items.map((item) => (
         <span key={item.id} className="flex items-center gap-1">

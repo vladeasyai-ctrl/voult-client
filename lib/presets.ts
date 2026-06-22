@@ -1,3 +1,4 @@
+import { t } from '@/lib/i18n';
 import type { TreeNode } from './types';
 
 export interface PresetChildTemplate {
@@ -17,32 +18,35 @@ export interface VaultPreset {
 export const VAULT_PRESETS: VaultPreset[] = [
   {
     id: 'work',
-    label: 'Работа',
-    description: 'Клиенты, резюме, проекты и рабочие документы',
+    label: t('presets.work.label'),
+    description: t('presets.work.description'),
     emoji: '💼',
-    rootName: 'Работа',
+    rootName: t('presets.work.rootName'),
     branches: [
       {
-        name: 'Клиенты',
-        childSuggestions: (n) => [`Клиент ${n + 1}`, `Клиент ${n + 2}`],
+        name: t('presets.work.clients'),
+        childSuggestions: (n) => [
+          t('presets.work.clientN', { n: n + 1 }),
+          t('presets.work.clientN', { n: n + 2 }),
+        ],
       },
-      { name: 'Резюме' },
+      { name: t('presets.work.resume') },
     ],
   },
   {
     id: 'health',
-    label: 'Здоровье',
-    description: 'Карта тела — нажмите на зону и создайте папки для документов',
+    label: t('presets.health.label'),
+    description: t('presets.health.description'),
     emoji: '🩺',
-    rootName: 'Здоровье',
+    rootName: t('presets.health.rootName'),
     branches: [
       {
-        name: 'Анализы',
-        childSuggestions: (n) => [`Анализ ${n + 1}`],
+        name: t('presets.health.labs'),
+        childSuggestions: (n) => [t('presets.health.labN', { n: n + 1 })],
       },
       {
-        name: 'Визиты',
-        childSuggestions: (n) => [`Визит ${n + 1}`],
+        name: t('presets.health.visits'),
+        childSuggestions: (n) => [t('presets.health.visitN', { n: n + 1 })],
       },
     ],
   },
@@ -101,7 +105,7 @@ export function getSuggestions(
     return [
       {
         key: `generic-${parent.id}`,
-        label: '+ Новая ветка',
+        label: t('presets.newBranch'),
         parentId: parent.id,
       },
     ];

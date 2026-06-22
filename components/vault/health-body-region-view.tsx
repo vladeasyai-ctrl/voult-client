@@ -3,6 +3,7 @@
 import { motion } from 'framer-motion';
 import { ArrowLeft, FolderOpen, FolderPlus } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { t } from '@/lib/i18n';
 import type { HealthBodyRegion, HealthFolderTemplate } from '@/lib/health-body-map';
 
 interface FolderItem {
@@ -50,7 +51,7 @@ export function HealthBodyRegionView({
         )}
       >
         <ArrowLeft size={16} />
-        К телу
+        {t('common.toBody')}
       </button>
 
       <div>
@@ -68,7 +69,7 @@ export function HealthBodyRegionView({
             xray ? 'text-cyan-200/50' : 'text-[var(--color-muted)]',
           )}
         >
-          Выберите папку или создайте новую
+          {t('vault.healthSelectOrCreate')}
         </p>
       </div>
 
@@ -133,7 +134,9 @@ export function HealthBodyRegionView({
                       xray ? 'text-cyan-200/40' : 'text-[var(--color-muted)]',
                     )}
                   >
-                    {exists ? template.folderName : `Создать «${template.folderName}»`}
+                    {exists
+                      ? template.folderName
+                      : t('vault.healthCreateFolder', { name: template.folderName })}
                   </span>
                 </span>
               </button>

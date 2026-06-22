@@ -2,6 +2,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { MindMapLayoutMode } from '@/lib/mind-map-layout';
 import type { Document, TreeNode } from '@/lib/types';
 import type { NodeOrderMap } from '@/lib/node-order';
 import {
@@ -33,6 +34,8 @@ interface VaultState {
   onboarded: boolean;
   activeRootId: string | null;
   healthViewMode: 'body' | 'tree';
+  mindMapLayoutMode: MindMapLayoutMode;
+  radialFolderRayLength: number | null;
   canvas: { x: number; y: number; scale: number };
   setTree: (tree: TreeNode[]) => void;
   setDocuments: (documents: Document[]) => void;
@@ -65,6 +68,10 @@ interface VaultState {
   setOnboarded: (value: boolean) => void;
   setActiveRootId: (id: string | null) => void;
   setHealthViewMode: (mode: 'body' | 'tree') => void;
+  setMindMapLayoutMode: (mode: MindMapLayoutMode) => void;
+  toggleMindMapLayoutMode: () => void;
+  setRadialFolderRayLength: (value: number | null) => void;
+  resetCanvasView: () => void;
   setCanvas: (canvas: Partial<{ x: number; y: number; scale: number }>) => void;
 }
 
@@ -83,6 +90,8 @@ export const useVaultStore = create<VaultState>()(
       onboarded: false,
       activeRootId: null,
       healthViewMode: 'body',
+      mindMapLayoutMode: 'radial',
+      radialFolderRayLength: null,
       canvas: { x: 0, y: 0, scale: 1 },
       setTree: (tree) => set({ tree }),
       setDocuments: (documents) => set({ documents }),
@@ -165,6 +174,17 @@ export const useVaultStore = create<VaultState>()(
       setOnboarded: (value) => set({ onboarded: value }),
       setActiveRootId: (id) => set({ activeRootId: id }),
       setHealthViewMode: (mode) => set({ healthViewMode: mode }),
+      setMindMapLayoutMode: (mode) => set({ mindMapLayoutMode: mode }),
+      toggleMindMapLayoutMode: () =>
+        set((s) => ({
+          mindMapLayoutMode: s.mindMapLayoutMode === 'radial' ? 'classic' : 'radial',
+        })),
+      setRadialFolderRayLength: (value) => set({ radialFolderRayLength: value }),
+      resetCanvasView: () =>
+        set({
+          canvas: { x: 0, y: 0, scale: 1 },
+          radialFolderRayLength: null,
+        }),
       setCanvas: (canvas) =>
         set((s) => ({ canvas: { ...s.canvas, ...canvas } })),
     }),
@@ -176,6 +196,8 @@ export const useVaultStore = create<VaultState>()(
         onboarded: s.onboarded,
         activeRootId: s.activeRootId,
         healthViewMode: s.healthViewMode,
+        mindMapLayoutMode: s.mindMapLayoutMode,
+        radialFolderRayLength: s.radialFolderRayLength,
         canvas: s.canvas,
         nodeOrder: s.nodeOrder,
       }),

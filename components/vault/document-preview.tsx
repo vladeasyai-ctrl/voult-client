@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatBytes } from '@/lib/format';
+import { t } from '@/lib/i18n';
 
 interface DocumentPreviewProps {
   downloadUrl?: string;
@@ -14,7 +15,7 @@ export function DocumentPreview({ downloadUrl, mimeType, title }: DocumentPrevie
   if (!downloadUrl) {
     return (
       <div className="flex h-48 items-center justify-center rounded-2xl bg-[var(--color-surface-2)] text-sm text-[var(--color-muted)]">
-        Нет файла для предпросмотра
+        {t('vault.noPreviewFile')}
       </div>
     );
   }
@@ -51,7 +52,7 @@ export function DocumentPreview({ downloadUrl, mimeType, title }: DocumentPrevie
 
   return (
     <div className="rounded-2xl bg-[var(--color-surface-2)] p-4 text-sm text-[var(--color-muted)]">
-      Предпросмотр недоступен для этого типа файла. Используйте скачивание.
+      {t('vault.previewUnsupported')}
     </div>
   );
 }
@@ -68,7 +69,7 @@ function TextPreview({ url }: { url: string }) {
 
   return (
     <pre className="max-h-64 overflow-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-4 text-xs leading-relaxed">
-      {data ?? 'Загрузка…'}
+      {data ?? t('common.loading')}
     </pre>
   );
 }

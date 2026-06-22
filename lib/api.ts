@@ -1,9 +1,9 @@
 import { clearToken, getToken } from './auth';
+import { t } from './i18n';
 import type {
   AiExecuteResponse,
   AiPlanAction,
   AiPlanResponse,
-  AiSettings,
   Asset,
   AuthResponse,
   ConfirmImportPayload,
@@ -11,7 +11,6 @@ import type {
   DownloadUrlResponse,
   ImportSession,
   TreeNode,
-  UpdateAiSettingsPayload,
 } from './types';
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080').replace(/\/$/, '');
@@ -27,7 +26,8 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getToken();
+  const isAuthEndpoint = path.startsWith('/api/auth/');
+  const token = isAuthEndpoint ? null : getToken();
   const headers = new Headers(options.headers);
 
   if (token) headers.set('Authorization', `Bearer ${token}`);
@@ -40,7 +40,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     if (response.status === 401) clearToken();
     const body = await response.json().catch(() => ({}));
-    throw new ApiError(body.message ?? 'Request failed', response.status, body.code);
+    throw new ApiError(body.message ?? t('errors.requestFailed'), response.status, body.code);
   }
 
   if (response.status === 204) return undefined as T;
@@ -143,14 +143,6 @@ export const api = {
 
   discardImport: (id: string) =>
     request(`/api/imports/${id}/discard`, { method: 'POST' }),
-
-  getAiSettings: () => request<AiSettings>('/api/ai/settings'),
-
-  updateAiSettings: (payload: UpdateAiSettingsPayload) =>
-    request<AiSettings>('/api/ai/settings', {
-      method: 'PUT',
-      body: JSON.stringify(payload),
-    }),
 
   planAiCommand: (message: string) =>
     request<AiPlanResponse>('/api/ai/plan', {

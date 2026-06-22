@@ -4,19 +4,21 @@ import { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   Activity,
-  FileText,
   Folder,
   FolderPlus,
   GripVertical,
   Map,
-  Minus,
   MoreHorizontal,
   Pencil,
   Plus,
   Trash2,
+  Sun,
+  TreePine,
   Upload,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { t } from '@/lib/i18n';
+import { en } from '@/lib/i18n/en';
 import {
   buildMindMapLayout,
   NODE_HEIGHT,
@@ -38,12 +40,18 @@ import { isHealthPresetRoot } from '@/lib/health-body-map';
 import { flattenTree, findNode } from '@/lib/tree-utils';
 import type { DropTarget, TreeNode } from '@/lib/types';
 import { AI_IMPORT_UNSUPPORTED_HINT, isAiImportFile } from '@/lib/ai-import';
-import { useVaultMutations } from '@/hooks/use-vault-data';
+import { useVaultData, useVaultMutations } from '@/hooks/use-vault-data';
 import { useVaultStore } from '@/stores/vault-store';
+import { NameDialog } from '@/components/vault/name-dialog';
+import { FileTypeIcon } from '@/components/ui/file-type-icon';
 import { PresetPicker } from '@/components/vault/preset-picker';
 import { RootFolderMap } from '@/components/vault/root-folder-map';
 import { HealthBodyCanvas } from '@/components/vault/health-body-canvas';
 import { MindMapEdges } from '@/components/vault/mind-map-edges';
+import {
+  MindMapCanvasSettingsButton,
+  MindMapCanvasSettingsPanel,
+} from '@/components/vault/mind-map-canvas-settings';
 import {
   MindMapDeleteFly,
   MindMapTrashZone,
@@ -112,6 +120,11 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
   const setActiveRootId = useVaultStore((s) => s.setActiveRootId);
   const healthViewMode = useVaultStore((s) => s.healthViewMode);
   const setHealthViewMode = useVaultStore((s) => s.setHealthViewMode);
+  const mindMapLayoutMode = useVaultStore((s) => s.mindMapLayoutMode);
+  const toggleMindMapLayoutMode = useVaultStore((s) => s.toggleMindMapLayoutMode);
+  const radialFolderRayLength = useVaultStore((s) => s.radialFolderRayLength);
+  const setRadialFolderRayLength = useVaultStore((s) => s.setRadialFolderRayLength);
+  const resetCanvasView = useVaultStore((s) => s.resetCanvasView);
   const reorderNodeLocal = useVaultStore((s) => s.reorderNodeLocal);
   const moveNodeLocal = useVaultStore((s) => s.moveNodeLocal);
   const setNodeOrder = useVaultStore((s) => s.setNodeOrder);
@@ -119,6 +132,7 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
   const removeNodeLocal = useVaultStore((s) => s.removeNodeLocal);
   const renameNodeLocal = useVaultStore((s) => s.renameNodeLocal);
 
+  const { isLoading } = useVaultData();
   const { createFolder, renameNode, moveNode, deleteFolder, deleteDocument, invalidate } =
     useVaultMutations();
 
@@ -130,6 +144,7 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
   const panStart = useRef({ x: 0, y: 0, canvasX: 0, canvasY: 0 });
   const [contextMenu, setContextMenu] = useState<string | null>(null);
   const [showPresetPicker, setShowPresetPicker] = useState(false);
+  const [rootNameDialogOpen, setRootNameDialogOpen] = useState(false);
   const [showRootMap, setShowRootMap] = useState(false);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [dropTarget, setDropTarget] = useState<DragDropTarget | null>(null);
@@ -137,7 +152,10 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
   const [trashDenied, setTrashDenied] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const trashRef = useRef<HTMLDivElement>(null);
+  const settingsRef = useRef<HTMLButtonElement>(null);
+  const settingsPanelRef = useRef<HTMLDivElement>(null);
   const pendingDeleteRef = useRef<PendingDelete | null>(null);
+  const [canvasSettingsOpen, setCanvasSettingsOpen] = useState(false);
   const [pendingDefaultNames, setPendingDefaultNames] = useState<Record<string, string>>({});
 
   const rootFolders = useMemo(
@@ -185,14 +203,27 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
   const flat = useMemo(() => flattenTree(displayTree), [displayTree]);
 
   useEffect(() => {
+    if (isLoading) return;
+
+    if (rootFolders.length > 0) {
+      if (!onboarded) setOnboarded(true);
+      setShowPresetPicker(false);
+      return;
+    }
+
     if (!onboarded && tree.length === 0) {
       setShowPresetPicker(true);
     }
-  }, [onboarded, tree.length]);
+  }, [isLoading, onboarded, tree.length, rootFolders.length, setOnboarded]);
+
+  const radialLayoutConfig = useMemo(
+    () => ({ folderRayLength: radialFolderRayLength }),
+    [radialFolderRayLength],
+  );
 
   const baseLayout = useMemo(
-    () => buildMindMapLayout(displayTree),
-    [displayTree],
+    () => buildMindMapLayout(displayTree, mindMapLayoutMode, radialLayoutConfig),
+    [displayTree, mindMapLayoutMode, radialLayoutConfig],
   );
 
   const treeForLayout = useMemo(() => {
@@ -206,9 +237,42 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
   }, [displayTree, dragState, dropTarget]);
 
   const layout = useMemo(
-    () => buildMindMapLayout(treeForLayout),
-    [treeForLayout],
+    () => buildMindMapLayout(treeForLayout, mindMapLayoutMode, radialLayoutConfig),
+    [treeForLayout, mindMapLayoutMode, radialLayoutConfig],
   );
+
+  const minFolderRayLength = layout.minFolderRayLength ?? 200;
+  const activeFolderRayLength = layout.folderRayLength ?? minFolderRayLength;
+  const maxFolderRayLength = minFolderRayLength * 2;
+
+  useEffect(() => {
+    if (mindMapLayoutMode !== 'radial') return;
+    if (radialFolderRayLength == null) return;
+    const clamped = Math.min(maxFolderRayLength, Math.max(minFolderRayLength, radialFolderRayLength));
+    if (clamped !== radialFolderRayLength) {
+      setRadialFolderRayLength(clamped);
+    }
+  }, [
+    mindMapLayoutMode,
+    minFolderRayLength,
+    maxFolderRayLength,
+    radialFolderRayLength,
+    setRadialFolderRayLength,
+  ]);
+
+  useEffect(() => {
+    if (!canvasSettingsOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (settingsRef.current?.contains(target)) return;
+      if (settingsPanelRef.current?.contains(target)) return;
+      setCanvasSettingsOpen(false);
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown, true);
+    return () => window.removeEventListener('pointerdown', handlePointerDown, true);
+  }, [canvasSettingsOpen]);
 
   const draggedNode = dragState
     ? flat.find((n) => n.id === dragState.nodeId) ?? null
@@ -235,7 +299,7 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
       const container = containerRef.current;
       if (!trash || !container) return;
 
-      // Убираем из дерева сразу — нода не «возвращается» после анимации
+      // Remove from tree immediately so the node does not reappear after animation
       removeNodeLocal(node.id);
       setNodeOrder(
         removeFromOrderMap(useVaultStore.getState().nodeOrder, node.id),
@@ -356,10 +420,11 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
         draggedNode,
         baseLayout.nodes,
         displayTree,
+        mindMapLayoutMode,
       );
       setDropTarget(target);
     },
-    [dragState, draggedNode, canvas.x, canvas.y, canvas.scale, baseLayout.nodes, displayTree],
+    [dragState, draggedNode, canvas.x, canvas.y, canvas.scale, baseLayout.nodes, displayTree, mindMapLayoutMode],
   );
 
   const finishDrag = useCallback(async () => {
@@ -470,17 +535,19 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
         offsetY,
       });
       setDropTarget(
-        resolveDragDropTarget(point, dragged, baseLayout.nodes, displayTree),
+        resolveDragDropTarget(point, dragged, baseLayout.nodes, displayTree, mindMapLayoutMode),
       );
     },
-    [baseLayout.nodes, canvas.x, canvas.y, canvas.scale, displayTree, flat],
+    [baseLayout.nodes, canvas.x, canvas.y, canvas.scale, displayTree, flat, mindMapLayoutMode],
   );
 
   const handleAddRoot = () => {
-    const name = prompt('Название корневой ветки');
-    if (!name?.trim()) return;
+    setRootNameDialogOpen(true);
+  };
+
+  const handleConfirmRootName = (name: string) => {
     createFolder.mutate(
-      { name: name.trim(), parentId: null },
+      { name, parentId: null },
       {
         onSuccess: (created) => {
           setActiveRootId(created.id);
@@ -594,14 +661,23 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
   );
 
   const onWheel = useCallback(
-    (e: React.WheelEvent) => {
+    (e: WheelEvent) => {
       e.preventDefault();
       const delta = e.deltaY > 0 ? -0.08 : 0.08;
-      const next = Math.min(2, Math.max(0.35, canvas.scale + delta));
+      const currentScale = useVaultStore.getState().canvas.scale;
+      const next = Math.min(2, Math.max(0.35, currentScale + delta));
       setCanvas({ scale: next });
     },
-    [canvas.scale, setCanvas],
+    [setCanvas],
   );
+
+  useEffect(() => {
+    const viewport = containerRef.current;
+    if (!viewport || showHealthBody) return;
+
+    viewport.addEventListener('wheel', onWheel, { passive: false });
+    return () => viewport.removeEventListener('wheel', onWheel);
+  }, [onWheel, showHealthBody]);
 
   const handleCreateHealthFolder = async (name: string) => {
     if (!activeRoot) return;
@@ -614,6 +690,7 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.closest('[data-mind-node]')) return;
+    if (target.closest('[data-canvas-control]')) return;
     setIsPanning(true);
     panStart.current = {
       x: e.clientX,
@@ -652,11 +729,11 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
 
   const dropTargetLabel = useMemo(() => {
     const target = resolveDropTarget();
-    if (!target) return 'архив';
+    if (!target) return t('common.archive');
     if (target.kind === 'folder') {
-      return flat.find((n) => n.id === target.nodeId)?.name ?? 'папку';
+      return flat.find((n) => n.id === target.nodeId)?.name ?? t('common.folder');
     }
-    return 'корень';
+    return t('common.root');
   }, [flat, resolveDropTarget]);
 
   const handleCanvasDragOver = useCallback((e: React.DragEvent) => {
@@ -702,6 +779,18 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
         <PresetPicker onSelect={handlePreset} onSkip={handleSkipPreset} />
       )}
 
+      <NameDialog
+        open={rootNameDialogOpen}
+        onClose={() => setRootNameDialogOpen(false)}
+        onConfirm={handleConfirmRootName}
+        title={t('vault.rootBranchTitle')}
+        description={t('vault.rootBranchDescription')}
+        placeholder={t('vault.rootBranchPlaceholder')}
+        suggestions={[...en.vault.rootBranchSuggestions]}
+        existingNames={rootFolders.map((r) => r.name)}
+        checkDuplicates
+      />
+
       {showRootMap && (
         <RootFolderMap
           roots={rootFolders}
@@ -712,9 +801,9 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
             selectNode(null);
             setShowRootMap(false);
           }}
-          onAddRoot={async () => {
+          onAddRoot={() => {
             setShowRootMap(false);
-            await handleAddRoot();
+            handleAddRoot();
           }}
           onClose={() => setShowRootMap(false)}
         />
@@ -724,18 +813,15 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
         <CanvasToolbar
           activeRootName={activeRoot?.name}
           rootCount={rootFolders.length}
-          scale={canvas.scale}
           isHealthRoot={isHealthRoot}
           healthViewMode={healthViewMode}
+          mindMapLayoutMode={mindMapLayoutMode}
+          onToggleMindMapLayout={toggleMindMapLayoutMode}
           onToggleHealthView={() =>
             setHealthViewMode(healthViewMode === 'body' ? 'tree' : 'body')
           }
           onOpenMap={() => setShowRootMap(true)}
-          onZoomIn={() => setCanvas({ scale: Math.min(2, canvas.scale + 0.1) })}
-          onZoomOut={() => setCanvas({ scale: Math.max(0.35, canvas.scale - 0.1) })}
-          onReset={() => setCanvas({ x: 0, y: 0, scale: 1 })}
           onAddRoot={handleAddRoot}
-          hideZoom={showHealthBody}
         />
 
         {showHealthBody ? (
@@ -759,7 +845,6 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
             !isPanning && !canvasDragOver && 'cursor-grab',
             canvasDragOver && 'ring-2 ring-inset ring-[var(--color-accent)]/40',
           )}
-          onWheel={onWheel}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -780,18 +865,26 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
               width={layout.width}
               height={layout.height}
               edges={layout.edges}
+              mode={mindMapLayoutMode}
             />
 
             {dragState && dropTarget && draggedNode && (
               <motion.div
                 className="absolute rounded-2xl border-2 border-dashed border-[var(--color-accent)]/50 bg-[var(--color-accent-soft)]/40"
                 style={{
-                  left: insertionPlaceholderX(dropTarget.parentId, layout.nodes),
+                  left: insertionPlaceholderX(
+                    dropTarget.parentId,
+                    layout.nodes,
+                    mindMapLayoutMode,
+                    dropTarget.sortIndex,
+                    dragState.nodeId,
+                  ),
                   top: insertionPlaceholderY(
                     dropTarget.parentId,
                     dropTarget.sortIndex,
                     layout.nodes,
                     dragState.nodeId,
+                    mindMapLayoutMode,
                   ),
                   width: NODE_WIDTH,
                   height: SUGGESTION_SLOT_HEIGHT,
@@ -882,9 +975,9 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
                 className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-center"
                 style={{ width: 320 }}
               >
-                <p className="text-lg font-medium">Пустой холст</p>
+                <p className="text-lg font-medium">{t('vault.emptyCanvas')}</p>
                 <p className="mt-2 text-sm text-[var(--color-muted)]">
-                  Создайте корневую ветку или перетащите файлы сюда
+                  {t('vault.emptyCanvasHint')}
                 </p>
               </div>
             )}
@@ -893,7 +986,7 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
           {canvasDragOver && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[var(--color-accent)]/10 backdrop-blur-[1px]">
               <div className="rounded-2xl border border-[var(--color-accent)] bg-[var(--color-surface)] px-6 py-4 text-sm shadow-lg">
-                Отпустите для AI-импорта в «{dropTargetLabel}»
+                {t('vault.dropForAiImport', { target: dropTargetLabel })}
               </div>
             </div>
           )}
@@ -909,7 +1002,7 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
           {uploading && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/10">
               <div className="rounded-xl bg-[var(--color-surface)] px-6 py-3 text-sm shadow-lg">
-                Загрузка…
+                {t('common.loading')}
               </div>
             </div>
           )}
@@ -919,6 +1012,33 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
             active={dragToTrash}
             denied={trashDenied}
           />
+
+          {!showHealthBody && (
+            <>
+              <MindMapCanvasSettingsButton
+                open={canvasSettingsOpen}
+                settingsRef={settingsRef}
+                onToggle={() => setCanvasSettingsOpen((open) => !open)}
+              />
+              <div ref={settingsPanelRef}>
+                <MindMapCanvasSettingsPanel
+                  open={canvasSettingsOpen}
+                  scale={canvas.scale}
+                  mindMapLayoutMode={mindMapLayoutMode}
+                  folderRayLength={activeFolderRayLength}
+                  minFolderRayLength={minFolderRayLength}
+                  maxFolderRayLength={maxFolderRayLength}
+                  onZoomIn={() => setCanvas({ scale: Math.min(2, canvas.scale + 0.1) })}
+                  onZoomOut={() => setCanvas({ scale: Math.max(0.35, canvas.scale - 0.1) })}
+                  onFolderRayLengthChange={setRadialFolderRayLength}
+                  onReset={() => {
+                    resetCanvasView();
+                    setCanvasSettingsOpen(false);
+                  }}
+                />
+              </div>
+            </>
+          )}
 
           {pendingDelete && (
             <MindMapDeleteFly
@@ -935,7 +1055,7 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
         </div>
 
         <div className="border-t border-[var(--color-border)] px-4 py-2 text-xs text-[var(--color-muted)]">
-          Наведите на папку и нажмите + для новой ветки · В корзину — удалить · Колёсико — масштаб
+          {t('vault.canvasHint')}
         </div>
         </>
         )}
@@ -972,30 +1092,26 @@ function resolvePresetId(
 function CanvasToolbar({
   activeRootName,
   rootCount,
-  scale,
   isHealthRoot,
   healthViewMode,
+  mindMapLayoutMode,
+  onToggleMindMapLayout,
   onToggleHealthView,
   onOpenMap,
-  onZoomIn,
-  onZoomOut,
-  onReset,
   onAddRoot,
-  hideZoom,
 }: {
   activeRootName?: string;
   rootCount: number;
-  scale: number;
   isHealthRoot?: boolean;
   healthViewMode?: 'body' | 'tree';
+  mindMapLayoutMode?: 'classic' | 'radial';
+  onToggleMindMapLayout?: () => void;
   onToggleHealthView?: () => void;
   onOpenMap: () => void;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
-  onReset: () => void;
   onAddRoot: () => void;
-  hideZoom?: boolean;
 }) {
+  const isRadial = mindMapLayoutMode === 'radial';
+
   return (
     <div className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface)]/80 px-4 py-2 backdrop-blur">
       <button
@@ -1003,7 +1119,7 @@ function CanvasToolbar({
         onClick={onAddRoot}
         className="flex items-center gap-1.5 rounded-lg bg-[var(--color-accent-soft)] px-3 py-1.5 text-sm text-[var(--color-accent)]"
       >
-        <Plus size={14} /> Корневая ветка
+        <Plus size={14} /> {t('vault.rootBranch')}
       </button>
       {activeRootName && (
         <span className="hidden truncate text-sm text-[var(--color-muted)] sm:inline">
@@ -1020,49 +1136,47 @@ function CanvasToolbar({
               ? 'bg-cyan-950/80 text-cyan-300 ring-1 ring-cyan-500/40'
               : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]',
           )}
-          title={healthViewMode === 'body' ? 'Рентген-карта тела' : 'Переключить на карту тела'}
+          title={healthViewMode === 'body' ? t('common.xray') : t('common.bodyMap')}
         >
           <Activity size={14} />
           <span className="hidden sm:inline">
-            {healthViewMode === 'body' ? 'Карта тела' : 'Рентген'}
+            {healthViewMode === 'body' ? t('common.bodyMap') : t('common.xray')}
           </span>
         </button>
       )}
       <div className="ml-auto flex items-center gap-1">
+        {onToggleMindMapLayout && (
+          <button
+            type="button"
+            onClick={onToggleMindMapLayout}
+            className={cn(
+              'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition',
+              isRadial
+                ? 'bg-[var(--color-accent-soft)] text-[var(--color-accent)]'
+                : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]',
+            )}
+            title={isRadial ? t('common.rays') : t('common.tree')}
+          >
+            {isRadial ? <Sun size={14} /> : <TreePine size={14} />}
+            <span className="hidden sm:inline">
+              {isRadial ? t('common.rays') : t('common.tree')}
+            </span>
+          </button>
+        )}
         <button
           type="button"
           onClick={onOpenMap}
           className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]"
-          title="Карта корневых веток"
+          title={t('vault.rootBranches')}
         >
           <Map size={14} />
-          <span className="hidden sm:inline">Карта</span>
+          <span className="hidden sm:inline">{t('common.map')}</span>
           {rootCount > 1 && (
             <span className="rounded-full bg-[var(--color-accent-soft)] px-1.5 py-0.5 text-xs text-[var(--color-accent)]">
               {rootCount}
             </span>
           )}
         </button>
-        {!hideZoom && (
-          <>
-        <button type="button" onClick={onZoomOut} className="rounded-lg p-2 hover:bg-[var(--color-surface-2)]">
-          <Minus size={14} />
-        </button>
-        <span className="w-12 text-center text-xs text-[var(--color-muted)]">
-          {Math.round(scale * 100)}%
-        </span>
-        <button type="button" onClick={onZoomIn} className="rounded-lg p-2 hover:bg-[var(--color-surface-2)]">
-          <Plus size={14} />
-        </button>
-        <button
-          type="button"
-          onClick={onReset}
-          className="ml-2 rounded-lg px-3 py-1.5 text-xs text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]"
-        >
-          Сбросить вид
-        </button>
-          </>
-        )}
       </div>
     </div>
   );
@@ -1070,7 +1184,7 @@ function CanvasToolbar({
 
 interface MindMapNodeCardProps {
   node: TreeNode;
-  document?: { id: string };
+  document?: { id: string; title: string; mimeType?: string | null };
   x: number;
   y: number;
   selected: boolean;
@@ -1093,7 +1207,7 @@ interface MindMapNodeCardProps {
 
 function MindMapNodeCard({
   node,
-  document: _document,
+  document,
   x,
   y,
   selected,
@@ -1136,7 +1250,7 @@ function MindMapNodeCard({
     }
   }, [isEditing, node.id, isPending]);
 
-  const placeholderName = defaultFolderName ?? 'Новая папка';
+  const placeholderName = defaultFolderName ?? t('vault.defaultFolderName');
 
   const commitRename = () => {
     if (committedRef.current) return;
@@ -1188,7 +1302,7 @@ function MindMapNodeCard({
           <div className="h-px w-7 origin-left -rotate-[18deg] bg-[var(--color-border)]" />
           <button
             type="button"
-            title="Новая ветка"
+            title={t('common.newBranch')}
             className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-accent)] shadow-md transition hover:scale-105 hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-soft)]"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
@@ -1215,7 +1329,7 @@ function MindMapNodeCard({
         <button
           type="button"
           className="shrink-0 rounded p-0.5 text-[var(--color-muted)] opacity-0 transition hover:bg-[var(--color-surface-2)] group-hover:opacity-100"
-          title="Перетащить"
+          title={t('vault.dragToReorder')}
           onPointerDown={(e) => {
             e.stopPropagation();
             onStartDrag(e.clientX, e.clientY);
@@ -1228,7 +1342,11 @@ function MindMapNodeCard({
           {isFolder ? (
             <Folder size={16} className="shrink-0 text-[var(--color-accent)]" />
           ) : (
-            <FileText size={16} className="shrink-0 text-[var(--color-muted)]" />
+            <FileTypeIcon
+              mimeType={document?.mimeType}
+              filename={document?.title ?? node.name}
+              size={18}
+            />
           )}
           {isEditing ? (
             <div className="relative min-w-0 flex-1">
@@ -1292,10 +1410,10 @@ function MindMapNodeCard({
               onCloseMenu();
             }}
           >
-            <Pencil size={14} /> Переименовать
+            <Pencil size={14} /> {t('common.rename')}
           </button>
           <label className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-2)]">
-            <Upload size={14} /> Загрузить файл
+            <Upload size={14} /> {t('common.uploadFile')}
             <input
               type="file"
               multiple
@@ -1314,7 +1432,7 @@ function MindMapNodeCard({
               onCloseMenu();
             }}
           >
-            <Trash2 size={14} /> Удалить
+            <Trash2 size={14} /> {t('common.delete')}
           </button>
         </div>
       )}

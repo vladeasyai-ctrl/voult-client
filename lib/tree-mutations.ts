@@ -1,3 +1,4 @@
+import { t } from '@/lib/i18n';
 import type { TreeNode } from './types';
 
 function cloneTree(nodes: TreeNode[]): TreeNode[] {
@@ -117,7 +118,7 @@ function escapeRegex(value: string): string {
 /** Windows-style: parent name + next free digit (e.g. das → das1, das2). */
 export function suggestChildFolderName(parentName: string, siblings: TreeNode[]): string {
   const base = parentName.trim();
-  if (!base) return 'Папка1';
+  if (!base) return t('vault.defaultFolderNameNumbered', { n: 1 });
 
   const used = new Set<number>();
   const pattern = new RegExp(`^${escapeRegex(base)}(\\d+)$`, 'i');
