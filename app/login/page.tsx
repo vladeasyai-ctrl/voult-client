@@ -89,34 +89,40 @@ function LoginForm() {
           ))}
         </div>
 
-        {googleClientId && (
+        {googleClientId ? (
           <div className="mb-6 space-y-4">
-            <div className="flex justify-center [&>div]:w-full">
-              <GoogleLogin
-                onSuccess={(response) => {
-                  clearError();
-                  if (!response.credential) {
+            <div className="overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
+              <p className="mb-3 text-center text-xs text-[var(--color-muted)]">
+                {t('auth.continueWithGoogle')}
+              </p>
+              <div className="flex justify-center [&>div]:!w-full [&_iframe]:!w-full">
+                <GoogleLogin
+                  onSuccess={(response) => {
+                    clearError();
+                    if (!response.credential) {
+                      setError({
+                        title: t('auth.errors.googleTitle'),
+                        message: t('auth.googleNoToken'),
+                        variant: 'error',
+                      });
+                      return;
+                    }
+                    googleAuth.mutate(response.credential);
+                  }}
+                  onError={() =>
                     setError({
                       title: t('auth.errors.googleTitle'),
-                      message: t('auth.googleNoToken'),
+                      message: t('auth.googleFailed'),
                       variant: 'error',
-                    });
-                    return;
+                    })
                   }
-                  googleAuth.mutate(response.credential);
-                }}
-                onError={() =>
-                  setError({
-                    title: t('auth.errors.googleTitle'),
-                    message: t('auth.googleFailed'),
-                    variant: 'error',
-                  })
-                }
-                theme="outline"
-                size="large"
-                width="100%"
-                text="continue_with"
-              />
+                  theme="outline"
+                  size="large"
+                  width="360"
+                  text="continue_with"
+                  shape="rectangular"
+                />
+              </div>
             </div>
             <div className="flex items-center gap-3 text-xs text-[var(--color-muted)]">
               <span className="h-px flex-1 bg-[var(--color-border)]" />
@@ -124,7 +130,7 @@ function LoginForm() {
               <span className="h-px flex-1 bg-[var(--color-border)]" />
             </div>
           </div>
-        )}
+        ) : null}
 
         <form
           className="space-y-4"

@@ -2,21 +2,18 @@
 
 import {
   Lock,
-  Moon,
   PanelRightClose,
   PanelRightOpen,
   RefreshCw,
   Search,
   Sparkles,
-  Sun,
 } from 'lucide-react';
+import { ThemeToggle } from '@/components/theme-toggle';
 import Link from 'next/link';
-import { useEffect } from 'react';
 import { cn } from '@/lib/cn';
 import { clearToken } from '@/lib/auth';
 import { t } from '@/lib/i18n';
 import { useRouter } from 'next/navigation';
-import { useThemeStore } from '@/stores/vault-store';
 import { useVaultStore } from '@/stores/vault-store';
 
 interface TopBarProps {
@@ -26,15 +23,8 @@ interface TopBarProps {
 
 export function TopBar({ onRefresh, onOpenAiImport }: TopBarProps) {
   const router = useRouter();
-  const theme = useThemeStore((s) => s.theme);
-  const toggleTheme = useThemeStore((s) => s.toggle);
-  const setTheme = useThemeStore((s) => s.setTheme);
   const rightPanelOpen = useVaultStore((s) => s.rightPanelOpen);
   const toggleRightPanel = useVaultStore((s) => s.toggleRightPanel);
-
-  useEffect(() => {
-    setTheme(theme);
-  }, [setTheme, theme]);
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]/80 px-4 backdrop-blur-md">
@@ -90,13 +80,7 @@ export function TopBar({ onRefresh, onOpenAiImport }: TopBarProps) {
         {rightPanelOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
       </button>
 
-      <button
-        type="button"
-        onClick={toggleTheme}
-        className="rounded-lg p-2 text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]"
-      >
-        {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
-      </button>
+      <ThemeToggle />
 
       <button
         type="button"

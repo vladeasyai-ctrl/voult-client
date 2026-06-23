@@ -20,7 +20,9 @@ import { isAuthenticated } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 import { en } from '@/lib/i18n/en';
 import { t } from '@/lib/i18n';
+import { HeroMapSnapshot } from '@/components/landing/hero-map-snapshot';
 import { ProductDemo } from '@/components/landing/product-demo';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -77,15 +79,16 @@ export function LandingPage() {
             <a href="#features" className="transition hover:text-[var(--color-text)]">
               {t('landing.features')}
             </a>
-            <a href="#how" className="transition hover:text-[var(--color-text)]">
-              {t('landing.howItWorks')}
-            </a>
+              <a href="#scenarios" className="transition hover:text-[var(--color-text)]">
+                {t('landing.howItWorks')}
+              </a>
             <a href="#pricing" className="transition hover:text-[var(--color-text)]">
               {t('landing.pricing')}
             </a>
           </nav>
 
           <div className="flex items-center gap-3">
+            <ThemeToggle />
             {authenticated ? (
               <Link
                 href="/vault"
@@ -150,7 +153,7 @@ export function LandingPage() {
                 <ArrowRight size={18} />
               </Link>
               <a
-                href="#how"
+                href="#scenarios"
                 className="text-sm text-[var(--color-muted)] underline-offset-4 transition hover:text-[var(--color-text)] hover:underline"
               >
                 {t('landing.seeHowItWorks')}
@@ -169,7 +172,7 @@ export function LandingPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.15 }}
           >
-            <ProductDemo />
+            <HeroMapSnapshot />
           </motion.div>
         </div>
       </section>
@@ -180,6 +183,22 @@ export function LandingPage() {
           {t('landing.audience')}
         </p>
       </div>
+
+      {/* Interactive scenarios */}
+      <section id="scenarios" className="bg-[var(--color-surface)]/30 py-12 md:py-16">
+        <div className="mx-auto mb-8 max-w-2xl px-6 text-center">
+          <p className="text-xs uppercase tracking-[0.2em] text-[var(--color-muted)]">
+            {t('landing.howItWorks')}
+          </p>
+          <h2 className="mt-3 font-[family-name:var(--font-display)] text-3xl md:text-4xl">
+            {t('landing.scenariosTitle')}
+          </h2>
+          <p className="mt-4 text-[var(--color-muted)]">
+            {t('landing.scenariosSubtitle')}
+          </p>
+        </div>
+        <ProductDemo fullWidth />
+      </section>
 
       {/* Features */}
       <Section id="features" className="px-6 py-20 md:py-28">

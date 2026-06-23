@@ -81,18 +81,18 @@ interface PendingDelete {
 
 interface MindMapCanvasProps {
   onUploadFiles: (files: File[], target?: DropTarget) => Promise<void>;
-  onAiImportFile?: (file: File, target: DropTarget) => void;
+  onAiImportFiles?: (files: File[], target: DropTarget) => void;
 }
 
 async function handleFileDrop(
   files: File[],
   target: DropTarget,
-  onAiImportFile: MindMapCanvasProps['onAiImportFile'],
+  onAiImportFiles: MindMapCanvasProps['onAiImportFiles'],
   onUploadFiles: MindMapCanvasProps['onUploadFiles'],
 ): Promise<'ai' | 'upload' | 'unsupported'> {
   const importFiles = files.filter(isAiImportFile);
-  if (importFiles.length > 0 && onAiImportFile) {
-    onAiImportFile(importFiles[0], target);
+  if (importFiles.length > 0 && onAiImportFiles) {
+    onAiImportFiles(importFiles, target);
     return 'ai';
   }
   if (files.some((f) => !isAiImportFile(f)) && importFiles.length === 0) {
@@ -102,7 +102,7 @@ async function handleFileDrop(
   return 'upload';
 }
 
-export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasProps) {
+export function MindMapCanvas({ onUploadFiles, onAiImportFiles }: MindMapCanvasProps) {
   const tree = useVaultStore((s) => s.tree);
   const documents = useVaultStore((s) => s.documents);
   const presetId = useVaultStore((s) => s.presetId);
@@ -750,7 +750,7 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
       setUploading(true);
       setDropHint(null);
       try {
-        const mode = await handleFileDrop(files, target, onAiImportFile, onUploadFiles);
+        const mode = await handleFileDrop(files, target, onAiImportFiles, onUploadFiles);
         if (mode === 'unsupported') {
           setDropHint(AI_IMPORT_UNSUPPORTED_HINT);
           window.setTimeout(() => setDropHint(null), 4000);
@@ -759,7 +759,7 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
         setUploading(false);
       }
     },
-    [onAiImportFile, onUploadFiles, resolveDropTarget],
+    [onAiImportFiles, onUploadFiles, resolveDropTarget],
   );
 
   return (
@@ -918,7 +918,7 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFile }: MindMapCanvasPr
                   setUploading(true);
                   setDropHint(null);
                   try {
-                    const mode = await handleFileDrop(files, target, onAiImportFile, onUploadFiles);
+                    const mode = await handleFileDrop(files, target, onAiImportFiles, onUploadFiles);
                     if (mode === 'unsupported') {
                       setDropHint(AI_IMPORT_UNSUPPORTED_HINT);
                       window.setTimeout(() => setDropHint(null), 4000);

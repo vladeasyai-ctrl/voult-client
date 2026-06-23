@@ -163,7 +163,14 @@ export const api = {
   confirmImport: (id: string, payload: ConfirmImportPayload) =>
     request<Document>(`/api/imports/${id}/confirm`, {
       method: 'POST',
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        title: payload.title,
+        summary: payload.summary,
+        tags: payload.tags,
+        folderPath: payload.folderPath,
+        parentId: payload.parentId,
+        spaceId: payload.spaceId ?? null,
+      }),
     }),
 
   discardImport: (id: string) =>

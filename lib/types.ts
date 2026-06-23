@@ -53,11 +53,29 @@ export interface ImportProposal {
 export interface ImportSession {
   id: string;
   assetId: string;
+  documentId: string | null;
+  spaceId: string | null;
+  parentId: string | null;
   status: ImportStatus;
   proposal: ImportProposal | null;
   errorMessage: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type ImportPhase = 'uploading' | 'storing' | 'analyzing' | 'ready' | 'failed';
+
+export interface ImportQueueItem {
+  clientId: string;
+  importId: string | null;
+  file: File;
+  dropTarget: DropTarget | null;
+  phase: ImportPhase;
+  uploadProgress: number;
+  session: ImportSession | null;
+  document: Document | null;
+  error: string | null;
+  timerSeconds: number | null;
 }
 
 export interface Asset {
@@ -90,6 +108,7 @@ export interface ConfirmImportPayload {
   tags: string[];
   folderPath: string[];
   parentId: string | null;
+  spaceId?: string | null;
 }
 
 export interface AiPlanAction {
