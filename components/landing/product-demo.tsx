@@ -20,6 +20,8 @@ import { Meta, PdfPreviewMock } from './demo-shared';
 import { DemoDragDropUpload } from './demo-drag-drop';
 import { getDemoFocusTarget } from '@/lib/demo-focus';
 
+type StepPhase = Exclude<DemoPhase, 'hold' | 'analyze'>;
+
 const PHASE_LABELS: Partial<Record<DemoPhase, string>> = {
   archive: 'demo.archive',
   search: 'demo.search',
@@ -121,7 +123,7 @@ export function ProductDemo({ fullWidth = false }: ProductDemoProps) {
   );
 
   const displayPhase = phase === 'hold' ? preset.sequence[preset.sequence.length - 2] : phase;
-  const stepPhases = preset.sequence.filter((p) => p !== 'hold' && p !== 'analyze');
+  const stepPhases = preset.sequence.filter((p): p is StepPhase => p !== 'hold' && p !== 'analyze');
 
   return (
     <div className={cn('flex flex-col', fullWidth ? 'gap-5' : 'gap-3')}>
@@ -308,7 +310,13 @@ export function ProductDemo({ fullWidth = false }: ProductDemoProps) {
             {stepPhases.map((p) => {
               const labelKey = PHASE_LABELS[p];
               const seqIndex = preset.sequence.indexOf(p);
-              const currentIdx = stepPhases.indexOf(displayPhase === 'analyze' ? 'drop' : displayPhase);
+              const progressPhase: StepPhase =
+                displayPhase === 'analyze'
+                  ? 'drop'
+                  : displayPhase === 'hold'
+                    ? (stepPhases.at(-1) ?? 'preview')
+                    : displayPhase;
+              const currentIdx = stepPhases.indexOf(progressPhase);
               const stepIdx = stepPhases.indexOf(p);
               const isCurrent =
                 displayPhase === p ||
