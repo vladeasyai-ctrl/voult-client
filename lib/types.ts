@@ -1,10 +1,24 @@
 export type NodeType = 'FOLDER' | 'DOCUMENT';
 
+export interface Space {
+  id: string;
+  name: string;
+  presetId: string | null;
+  sortOrder: number;
+  settings: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface TreeNode {
   id: string;
+  spaceId: string;
   parentId: string | null;
   name: string;
   type: NodeType;
+  iconKey: string | null;
+  color: string | null;
+  description: string | null;
   createdAt: string;
   updatedAt: string;
   children: TreeNode[];
@@ -17,9 +31,13 @@ export interface Document {
   title: string;
   description: string | null;
   aiSummary: string | null;
+  aiStatus: AiStatus | null;
+  mimeType: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+export type AiStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
 export type ImportStatus =
   | 'UPLOADED'
@@ -41,11 +59,44 @@ export interface ImportProposal {
 export interface ImportSession {
   id: string;
   assetId: string;
+  documentId: string | null;
+  spaceId: string | null;
+  parentId: string | null;
   status: ImportStatus;
   proposal: ImportProposal | null;
   errorMessage: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type RemoteUploadStatus = 'ACTIVE' | 'EXPIRED' | 'CLOSED';
+export type RemoteUploadMode = 'DIRECT' | 'AI_IMPORT';
+
+export interface RemoteUploadSession {
+  id: string;
+  token: string;
+  parentId: string | null;
+  spaceId: string | null;
+  mode: RemoteUploadMode;
+  expiresAt: string;
+  status: RemoteUploadStatus;
+  uploadCount: number;
+  createdAt: string;
+}
+
+export type ImportPhase = 'uploading' | 'storing' | 'analyzing' | 'ready' | 'failed';
+
+export interface ImportQueueItem {
+  clientId: string;
+  importId: string | null;
+  file: File;
+  dropTarget: DropTarget | null;
+  phase: ImportPhase;
+  uploadProgress: number;
+  session: ImportSession | null;
+  document: Document | null;
+  error: string | null;
+  timerSeconds: number | null;
 }
 
 export interface Asset {
@@ -65,6 +116,7 @@ export interface AuthResponse {
 
 export interface DownloadUrlResponse {
   url: string;
+  attachmentUrl: string;
   expiresInSeconds: number;
 }
 
@@ -78,21 +130,7 @@ export interface ConfirmImportPayload {
   tags: string[];
   folderPath: string[];
   parentId: string | null;
-}
-
-export interface AiSettings {
-  provider: string;
-  model: string;
-  baseUrl: string;
-  apiKeyConfigured: boolean;
-  apiKeyHint: string | null;
-}
-
-export interface UpdateAiSettingsPayload {
-  provider: string;
-  apiKey?: string;
-  model?: string;
-  baseUrl?: string;
+  spaceId?: string | null;
 }
 
 export interface AiPlanAction {

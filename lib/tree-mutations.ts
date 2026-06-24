@@ -1,3 +1,4 @@
+import { t } from '@/lib/i18n';
 import type { TreeNode } from './types';
 
 function cloneTree(nodes: TreeNode[]): TreeNode[] {
@@ -64,6 +65,18 @@ export function renameNodeInTree(
   }));
 }
 
+export function updateNodeInTree(
+  nodes: TreeNode[],
+  nodeId: string,
+  patch: Partial<Pick<TreeNode, 'name' | 'iconKey' | 'color' | 'description'>>,
+): TreeNode[] {
+  return nodes.map((n) => ({
+    ...n,
+    ...(n.id === nodeId ? patch : {}),
+    children: updateNodeInTree(n.children, nodeId, patch),
+  }));
+}
+
 export function replaceNodeIdInTree(
   nodes: TreeNode[],
   tempId: string,
@@ -97,13 +110,17 @@ export function mergePendingIntoTree(
   return merged;
 }
 
-export function createPendingFolder(parentId: string | null): TreeNode {
+export function createPendingFolder(spaceId: string, parentId: string | null): TreeNode {
   const now = new Date().toISOString();
   return {
     id: `pending-${crypto.randomUUID()}`,
+    spaceId,
     parentId,
     name: '',
     type: 'FOLDER',
+    iconKey: 'folder',
+    color: 'default',
+    description: null,
     createdAt: now,
     updatedAt: now,
     children: [],
@@ -117,7 +134,7 @@ function escapeRegex(value: string): string {
 /** Windows-style: parent name + next free digit (e.g. das → das1, das2). */
 export function suggestChildFolderName(parentName: string, siblings: TreeNode[]): string {
   const base = parentName.trim();
-  if (!base) return 'Папка1';
+  if (!base) return t('vault.defaultFolderNameNumbered', { n: 1 });
 
   const used = new Set<number>();
   const pattern = new RegExp(`^${escapeRegex(base)}(\\d+)$`, 'i');

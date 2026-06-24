@@ -1,5 +1,5 @@
 import type { PositionedNode } from './mind-map-layout';
-import { NODE_HEIGHT, NODE_WIDTH } from './mind-map-layout';
+import { HORIZONTAL_GAP, NODE_HEIGHT, orderedSiblings } from './mind-map-layout';
 import type { TreeNode } from './types';
 
 export interface CanvasPoint {
@@ -35,7 +35,7 @@ export function hitNodeAtPoint(
     if (excludeId && item.id === excludeId) continue;
     if (
       point.x >= item.x &&
-      point.x <= item.x + NODE_WIDTH &&
+      point.x <= item.x + item.width &&
       point.y >= item.y &&
       point.y <= item.y + NODE_HEIGHT
     ) {
@@ -46,22 +46,21 @@ export function hitNodeAtPoint(
 }
 
 export function computeSortIndexForPoint(
-  pointY: number,
+  point: CanvasPoint,
   parentId: string | null,
   positioned: PositionedNode[],
   draggedId: string,
 ): number {
-  const siblings = positioned
-    .filter((p) => p.node.parentId === parentId && p.id !== draggedId)
-    .sort((a, b) => a.y - b.y);
-
+  const siblings = orderedSiblings(parentId, positioned, draggedId);
   let index = 0;
+
   for (const sibling of siblings) {
     const midY = sibling.y + NODE_HEIGHT / 2;
-    if (pointY > midY) {
+    if (point.y > midY) {
       index += 1;
     }
   }
+
   return index;
 }
 
@@ -78,7 +77,7 @@ export function resolveDragDropTarget(
     if (!isDescendant) {
       return {
         parentId: hit.id,
-        sortIndex: computeSortIndexForPoint(point.y, hit.id, positioned, draggedNode.id),
+        sortIndex: computeSortIndexForPoint(point, hit.id, positioned, draggedNode.id),
       };
     }
   }
@@ -93,7 +92,7 @@ export function resolveDragDropTarget(
   return {
     parentId: draggedNode.parentId,
     sortIndex: computeSortIndexForPoint(
-      point.y,
+      point,
       draggedNode.parentId,
       positioned,
       draggedNode.id,
@@ -126,9 +125,7 @@ export function insertionPlaceholderY(
   positioned: PositionedNode[],
   draggedId: string,
 ): number {
-  const siblings = positioned
-    .filter((p) => p.node.parentId === parentId && p.id !== draggedId)
-    .sort((a, b) => a.y - b.y);
+  const siblings = orderedSiblings(parentId, positioned, draggedId);
 
   if (siblings.length === 0) {
     const parent = positioned.find((p) => p.id === parentId);
@@ -150,14 +147,32 @@ export function insertionPlaceholderY(
 export function insertionPlaceholderX(
   parentId: string | null,
   positioned: PositionedNode[],
+  sortIndex = 0,
 ): number {
-  const sibling = positioned.find((p) => p.node.parentId === parentId);
-  if (sibling) return sibling.x;
+  const siblings = orderedSiblings(parentId, positioned);
+  if (siblings.length > 0) {
+    const index = Math.min(Math.max(sortIndex, 0), siblings.length - 1);
+    return siblings[index].x;
+  }
   if (parentId) {
     const parent = positioned.find((p) => p.id === parentId);
-    if (parent) return parent.x + NODE_WIDTH + 140;
+    if (parent) return parent.x + parent.width + HORIZONTAL_GAP;
   }
   return 80;
+}
+
+export function insertionPlaceholderWidth(
+  parentId: string | null,
+  sortIndex: number,
+  positioned: PositionedNode[],
+): number {
+  const siblings = orderedSiblings(parentId, positioned);
+  if (siblings.length === 0) {
+    const parent = positioned.find((p) => p.id === parentId);
+    return parent?.width ?? 196;
+  }
+  const index = Math.min(Math.max(sortIndex, 0), siblings.length - 1);
+  return siblings[index]?.width ?? 196;
 }
 
 export const SUGGESTION_SLOT_HEIGHT = 48;

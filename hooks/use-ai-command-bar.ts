@@ -1,35 +1,19 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { api } from '@/lib/api';
-import type { AiPlanAction, AiPlanResponse, AiSettings, UpdateAiSettingsPayload } from '@/lib/types';
+import { resolveUserError, type UserFacingError } from '@/lib/errors';
+import type { AiPlanResponse } from '@/lib/types';
 import { useVaultMutations } from '@/hooks/use-vault-data';
 
 export type AiCommandBarState = 'idle' | 'loading' | 'confirm' | 'executing';
 
 export function useAiCommandBar() {
   const { invalidate } = useVaultMutations();
-  const [settings, setSettings] = useState<AiSettings | null>(null);
   const [state, setState] = useState<AiCommandBarState>('idle');
   const [pendingPlan, setPendingPlan] = useState<AiPlanResponse | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadSettings = useCallback(async () => {
-    const data = await api.getAiSettings();
-    setSettings(data);
-    return data;
-  }, []);
-
-  useEffect(() => {
-    loadSettings().catch(() => undefined);
-  }, [loadSettings]);
-
-  const saveSettings = useCallback(async (payload: UpdateAiSettingsPayload) => {
-    const data = await api.updateAiSettings(payload);
-    setSettings(data);
-    return data;
-  }, []);
+  const [error, setError] = useState<UserFacingError | null>(null);
 
   const submitCommand = useCallback(async (text: string) => {
     const trimmed = text.trim();
@@ -50,7 +34,7 @@ export function useAiCommandBar() {
       setPendingPlan(plan);
       setState('confirm');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось обработать команду');
+      setError(resolveUserError(e));
       setState('idle');
     }
   }, []);
@@ -72,7 +56,7 @@ export function useAiCommandBar() {
       setPendingPlan(null);
       setState('idle');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось выполнить команду');
+      setError(resolveUserError(e));
       setState('confirm');
     }
   }, [invalidate, pendingPlan]);
@@ -89,13 +73,10 @@ export function useAiCommandBar() {
   }, []);
 
   return {
-    settings,
     state,
     pendingPlan,
     feedback,
     error,
-    loadSettings,
-    saveSettings,
     submitCommand,
     confirmPlan,
     dismissPlan,

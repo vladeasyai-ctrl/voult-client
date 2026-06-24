@@ -1,17 +1,18 @@
 import { clearToken, getToken } from './auth';
+import { t } from './i18n';
 import type {
   AiExecuteResponse,
   AiPlanAction,
   AiPlanResponse,
-  AiSettings,
   Asset,
   AuthResponse,
   ConfirmImportPayload,
   Document,
   DownloadUrlResponse,
   ImportSession,
+  RemoteUploadSession,
+  Space,
   TreeNode,
-  UpdateAiSettingsPayload,
 } from './types';
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8080').replace(/\/$/, '');
@@ -27,7 +28,8 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getToken();
+  const isAuthEndpoint = path.startsWith('/api/auth/');
+  const token = isAuthEndpoint ? null : getToken();
   const headers = new Headers(options.headers);
 
   if (token) headers.set('Authorization', `Bearer ${token}`);
@@ -40,7 +42,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (!response.ok) {
     if (response.status === 401) clearToken();
     const body = await response.json().catch(() => ({}));
-    throw new ApiError(body.message ?? 'Request failed', response.status, body.code);
+    throw new ApiError(body.message ?? t('errors.requestFailed'), response.status, body.code);
   }
 
   if (response.status === 204) return undefined as T;
@@ -66,12 +68,87 @@ export const api = {
       body: JSON.stringify({ idToken }),
     }),
 
-  getTree: () => request<TreeNode[]>('/api/nodes/tree'),
+  getSpaces: () => request<Space[]>('/api/spaces'),
 
-  createFolder: (name: string, parentId: string | null) =>
-    request<{ id: string; name: string; parentId: string | null; type: string }>('/api/nodes', {
+  getSpace: (id: string) => request<Space>(`/api/spaces/${id}`),
+
+  getSpaceTree: (spaceId: string) => request<TreeNode[]>(`/api/spaces/${spaceId}/tree`),
+
+  createSpace: (
+    name: string,
+    presetId?: string | null,
+    settings?: Record<string, unknown> | null,
+  ) =>
+    request<Space>('/api/spaces', {
       method: 'POST',
-      body: JSON.stringify({ name, parentId, type: 'FOLDER' }),
+      body: JSON.stringify({
+        name,
+        presetId: presetId ?? null,
+        settings: settings ?? null,
+      }),
+    }),
+
+  updateSpace: (id: string, name: string, presetId?: string | null) =>
+    request<Space>(`/api/spaces/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name, presetId: presetId ?? null }),
+    }),
+
+  deleteSpace: (id: string) => request(`/api/spaces/${id}`, { method: 'DELETE' }),
+
+  createFolder: (
+    name: string,
+    spaceId: string,
+    parentId: string | null,
+    appearance?: {
+      iconKey?: string;
+      color?: string;
+      description?: string;
+    },
+  ) =>
+    request<{
+      id: string;
+      spaceId: string;
+      name: string;
+      parentId: string | null;
+      type: string;
+      iconKey: string | null;
+      color: string | null;
+      description: string | null;
+    }>('/api/nodes', {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+        spaceId,
+        parentId,
+        type: 'FOLDER',
+        iconKey: appearance?.iconKey,
+        color: appearance?.color,
+        description: appearance?.description,
+      }),
+    }),
+
+  updateNode: (
+    id: string,
+    payload: {
+      name?: string;
+      iconKey?: string;
+      color?: string;
+      description?: string | null;
+    },
+  ) =>
+    request<{
+      id: string;
+      spaceId: string;
+      name: string;
+      parentId: string | null;
+      type: string;
+      iconKey: string | null;
+      color: string | null;
+      description: string | null;
+    }>(`/api/nodes/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
     }),
 
   renameNode: (id: string, name: string) =>
@@ -89,10 +166,16 @@ export const api = {
   deleteFolder: (id: string) =>
     request(`/api/nodes/${id}`, { method: 'DELETE' }),
 
-  getDocuments: () => request<Document[]>('/api/documents/search'),
+  getDocuments: (spaceId: string) =>
+    request<Document[]>(`/api/documents/search?spaceId=${encodeURIComponent(spaceId)}`),
 
-  searchDocuments: (q: string) =>
-    request<Document[]>(`/api/documents/search?q=${encodeURIComponent(q)}`),
+  searchDocuments: (q: string, spaceId?: string | null) => {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (spaceId) params.set('spaceId', spaceId);
+    const qs = params.toString();
+    return request<Document[]>(`/api/documents/search${qs ? `?${qs}` : ''}`);
+  },
 
   getDocument: (id: string) => request<Document>(`/api/documents/${id}`),
 
@@ -104,10 +187,17 @@ export const api = {
     parentId: string | null,
     assetId: string,
     description?: string,
+    enrichWithAi?: boolean,
   ) =>
     request<Document>('/api/documents', {
       method: 'POST',
-      body: JSON.stringify({ title, parentId, assetId, description }),
+      body: JSON.stringify({
+        title,
+        parentId,
+        assetId,
+        description,
+        enrichWithAi: enrichWithAi ?? false,
+      }),
     }),
 
   deleteDocument: (id: string) =>
@@ -119,10 +209,19 @@ export const api = {
     return request<Asset>('/api/assets/upload', { method: 'POST', body: form });
   },
 
-  getDownloadUrl: (assetId: string) =>
-    request<DownloadUrlResponse>(`/api/assets/${assetId}/download`),
+  getDownloadUrl: (assetId: string, filename?: string) => {
+    const params = new URLSearchParams();
+    if (filename) params.set('filename', filename);
+    const qs = params.toString();
+    return request<DownloadUrlResponse>(`/api/assets/${assetId}/download${qs ? `?${qs}` : ''}`);
+  },
 
   getAsset: (assetId: string) => request<Asset>(`/api/assets/${assetId}`),
+
+  getAssetTextPreview: (assetId: string) =>
+    request<{ text: string; totalLength: number; truncated: boolean }>(
+      `/api/assets/${assetId}/text-preview`,
+    ),
 
   createImport: (file: File) => {
     const form = new FormData();
@@ -138,19 +237,34 @@ export const api = {
   confirmImport: (id: string, payload: ConfirmImportPayload) =>
     request<Document>(`/api/imports/${id}/confirm`, {
       method: 'POST',
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        title: payload.title,
+        summary: payload.summary,
+        tags: payload.tags,
+        folderPath: payload.folderPath,
+        parentId: payload.parentId,
+        spaceId: payload.spaceId ?? null,
+      }),
     }),
 
   discardImport: (id: string) =>
     request(`/api/imports/${id}/discard`, { method: 'POST' }),
 
-  getAiSettings: () => request<AiSettings>('/api/ai/settings'),
-
-  updateAiSettings: (payload: UpdateAiSettingsPayload) =>
-    request<AiSettings>('/api/ai/settings', {
-      method: 'PUT',
-      body: JSON.stringify(payload),
+  createRemoteUploadSession: (
+    parentId?: string | null,
+    options?: { spaceId?: string | null; mode?: 'DIRECT' | 'AI_IMPORT' },
+  ) =>
+    request<RemoteUploadSession>('/api/remote-upload-sessions', {
+      method: 'POST',
+      body: JSON.stringify({
+        parentId: parentId ?? null,
+        spaceId: options?.spaceId ?? null,
+        mode: options?.mode ?? 'DIRECT',
+      }),
     }),
+
+  closeRemoteUploadSession: (id: string) =>
+    request(`/api/remote-upload-sessions/${id}/close`, { method: 'POST' }),
 
   planAiCommand: (message: string) =>
     request<AiPlanResponse>('/api/ai/plan', {

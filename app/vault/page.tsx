@@ -1,12 +1,12 @@
 'use client';
 
+import { useCallback, useEffect, useState } from 'react';
 import { usePreventBrowserFileDrop } from '@/hooks/use-prevent-browser-file-drop';
 import { useUpload } from '@/hooks/use-upload';
-import { useAiImport } from '@/hooks/use-ai-import';
+import { useAiImportQueue } from '@/hooks/use-ai-import-queue';
 import { useVaultData } from '@/hooks/use-vault-data';
 import { isAuthenticated } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
 import { AiCommandBar } from '@/components/vault/ai-command-bar';
 import { AiImportDialog } from '@/components/vault/ai-import-dialog';
 import { CommandPalette } from '@/components/vault/command-palette';
@@ -18,8 +18,7 @@ export default function VaultPage() {
   const router = useRouter();
   const { refresh } = useVaultData();
   const { uploadToTarget } = useUpload();
-  const aiImport = useAiImport();
-  const [aiImportOpen, setAiImportOpen] = useState(false);
+  const aiImportQueue = useAiImportQueue();
   const [dialogOpen, setDialogOpen] = useState(false);
 
   usePreventBrowserFileDrop();
@@ -39,17 +38,19 @@ export default function VaultPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const handleAiImportFile = useCallback(
-    async (file: File, target: DropTarget) => {
-      setAiImportOpen(true);
-      await aiImport.startImport(file, target);
+  const handleAiImportFiles = useCallback(
+    (files: File[], target: DropTarget) => {
+      aiImportQueue.enqueueFiles(files, target);
     },
-    [aiImport],
+    [aiImportQueue],
   );
 
-  const handleAiImportClose = useCallback(() => {
-    setAiImportOpen(false);
-  }, []);
+  const uploadToFolderWithAi = useCallback(
+    async (files: File[], folderId: string) => {
+      await uploadToTarget(files, { kind: 'folder', nodeId: folderId }, true);
+    },
+    [uploadToTarget],
+  );
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[var(--color-canvas)]">
@@ -57,14 +58,20 @@ export default function VaultPage() {
       <div className="flex min-h-0 flex-1 flex-col">
         <VaultLayout
           onUploadFiles={uploadToTarget}
-          onAiImportFile={handleAiImportFile}
-          aiImportOpen={aiImportOpen}
-          onAiImportClose={handleAiImportClose}
-          aiImport={aiImport}
+          onFolderUploadFiles={uploadToFolderWithAi}
+          onAiImportFiles={handleAiImportFiles}
+          aiImportQueue={aiImportQueue}
         />
         <AiCommandBar />
       </div>
-      <AiImportDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
+      <AiImportDialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        onEnqueue={(files, dropTarget) => aiImportQueue.enqueueFiles(files, dropTarget ?? null)}
+        onEnqueueImportSession={(importId, dropTarget) =>
+          aiImportQueue.enqueueImportSession(importId, dropTarget ?? null)
+        }
+      />
       <CommandPalette />
     </div>
   );

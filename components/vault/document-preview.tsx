@@ -1,62 +1,141 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { cn } from '@/lib/cn';
 import { api } from '@/lib/api';
-import { formatBytes } from '@/lib/format';
+import { t } from '@/lib/i18n';
+import { resolveFileType } from '@/lib/file-type';
+import { isVaultImportPreviewKind } from '@/lib/vault-import-files';
 
 interface DocumentPreviewProps {
+  assetId?: string;
   downloadUrl?: string;
   mimeType?: string;
   title: string;
+  className?: string;
 }
 
-export function DocumentPreview({ downloadUrl, mimeType, title }: DocumentPreviewProps) {
-  if (!downloadUrl) {
+export function DocumentPreview({
+  assetId,
+  downloadUrl,
+  mimeType,
+  title,
+  className,
+}: DocumentPreviewProps) {
+  const { kind } = resolveFileType(mimeType, title);
+  const usesExtractedTextPreview =
+    !!assetId && (kind === 'word' || kind === 'excel');
+
+  if (!downloadUrl && !usesExtractedTextPreview) {
     return (
-      <div className="flex h-48 items-center justify-center rounded-2xl bg-[var(--color-surface-2)] text-sm text-[var(--color-muted)]">
-        Нет файла для предпросмотра
+      <div
+        className={cn(
+          'flex items-center justify-center rounded-2xl bg-[var(--color-surface-2)] text-sm text-[var(--color-muted)]',
+          className,
+        )}
+      >
+        {t('vault.noPreviewFile')}
       </div>
     );
   }
 
-  const isPdf = mimeType?.includes('pdf') || title.toLowerCase().endsWith('.pdf');
-  const isImage =
-    mimeType?.startsWith('image/') ||
-    /\.(png|jpe?g|gif|webp|svg)$/i.test(title);
+  const isPdf = kind === 'pdf';
+  const isImage = kind === 'image';
+  const isText = kind === 'text' || mimeType?.startsWith('text/') || /\.(txt|md|json|xml|csv)$/i.test(title);
 
-  if (isPdf) {
+  if (isPdf && downloadUrl) {
     return (
       <iframe
         src={downloadUrl}
         title={title}
-        className="h-64 w-full rounded-2xl border border-[var(--color-border)] bg-white"
+        className={cn(
+          'w-full rounded-2xl border border-[var(--color-border)] bg-white',
+          className,
+        )}
       />
     );
   }
 
-  if (isImage) {
+  if (isImage && downloadUrl) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={downloadUrl}
-        alt={title}
-        className="max-h-64 w-full rounded-2xl border border-[var(--color-border)] object-contain"
-      />
+      <div
+        className={cn(
+          'flex min-h-0 items-center justify-center overflow-hidden rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-2)]',
+          className,
+        )}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={downloadUrl} alt={title} className="max-h-full max-w-full object-contain" />
+      </div>
     );
   }
 
-  if (mimeType?.startsWith('text/') || /\.(txt|md|json|xml|csv)$/i.test(title)) {
-    return <TextPreview url={downloadUrl} />;
+  if (usesExtractedTextPreview) {
+    return <ExtractedTextPreview assetId={assetId!} className={className} />;
+  }
+
+  if (isText && downloadUrl) {
+    return <TextPreview url={downloadUrl} className={className} />;
+  }
+
+  if (!isVaultImportPreviewKind(kind)) {
+    return (
+      <div
+        className={cn(
+          'flex items-center rounded-2xl bg-[var(--color-surface-2)] p-4 text-sm text-[var(--color-muted)]',
+          className,
+        )}
+      >
+        {t('vault.previewUnsupported')}
+      </div>
+    );
   }
 
   return (
-    <div className="rounded-2xl bg-[var(--color-surface-2)] p-4 text-sm text-[var(--color-muted)]">
-      Предпросмотр недоступен для этого типа файла. Используйте скачивание.
+    <div
+      className={cn(
+        'flex items-center rounded-2xl bg-[var(--color-surface-2)] p-4 text-sm text-[var(--color-muted)]',
+        className,
+      )}
+    >
+      {t('vault.previewUnsupported')}
     </div>
   );
 }
 
-function TextPreview({ url }: { url: string }) {
+function ExtractedTextPreview({ assetId, className }: { assetId: string; className?: string }) {
+  const { data, isError } = useQuery({
+    queryKey: ['text-preview', assetId],
+    queryFn: () => api.getAssetTextPreview(assetId),
+  });
+
+  if (isError) {
+    return (
+      <div
+        className={cn(
+          'flex items-center rounded-2xl bg-[var(--color-surface-2)] p-4 text-sm text-[var(--color-muted)]',
+          className,
+        )}
+      >
+        {t('vault.previewUnsupported')}
+      </div>
+    );
+  }
+
+  return (
+    <pre
+      className={cn(
+        'overflow-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-4 text-xs leading-relaxed whitespace-pre-wrap',
+        className,
+      )}
+    >
+      {data?.text ?? t('common.loading')}
+      {data?.truncated ? `\n\n[${t('vault.previewTruncated')}]` : ''}
+    </pre>
+  );
+}
+
+function TextPreview({ url, className }: { url: string; className?: string }) {
   const { data } = useQuery({
     queryKey: ['text-preview', url],
     queryFn: async () => {
@@ -67,8 +146,13 @@ function TextPreview({ url }: { url: string }) {
   });
 
   return (
-    <pre className="max-h-64 overflow-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-4 text-xs leading-relaxed">
-      {data ?? 'Загрузка…'}
+    <pre
+      className={cn(
+        'overflow-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-2)] p-4 text-xs leading-relaxed whitespace-pre-wrap',
+        className,
+      )}
+    >
+      {data ?? t('common.loading')}
     </pre>
   );
 }

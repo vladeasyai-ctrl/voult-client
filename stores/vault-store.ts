@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Document, TreeNode } from '@/lib/types';
+import type { Document, Space, TreeNode } from '@/lib/types';
 import type { NodeOrderMap } from '@/lib/node-order';
 import {
   applyNodeOrder,
@@ -17,10 +17,14 @@ import {
   mergePendingIntoTree,
   removeNodeFromTree,
   renameNodeInTree,
+  updateNodeInTree,
   replaceNodeIdInTree,
 } from '@/lib/tree-mutations';
 
+export type VaultLayoutMode = 'tree' | 'radial';
+
 interface VaultState {
+  spaces: Space[];
   tree: TreeNode[];
   documents: Document[];
   nodeOrder: NodeOrderMap;
@@ -31,11 +35,16 @@ interface VaultState {
   renamingNodeId: string | null;
   presetId: string | null;
   onboarded: boolean;
-  activeRootId: string | null;
-  healthViewMode: 'body' | 'tree';
+  activeSpaceId: string | null;
+  hasHydrated: boolean;
+  layoutMode: VaultLayoutMode;
   canvas: { x: number; y: number; scale: number };
+  setSpaces: (spaces: Space[]) => void;
+  setActiveSpaceId: (id: string | null) => void;
+  setHasHydrated: (value: boolean) => void;
   setTree: (tree: TreeNode[]) => void;
   setDocuments: (documents: Document[]) => void;
+  upsertDocument: (document: Document) => void;
   setNodeOrder: (order: NodeOrderMap) => void;
   applyOrderedTree: (tree: TreeNode[]) => void;
   reorderNodeLocal: (
@@ -52,10 +61,26 @@ interface VaultState {
   addPendingFolder: (parentId: string | null, node: TreeNode) => void;
   confirmPendingFolder: (
     tempId: string,
-    real: Pick<TreeNode, 'id' | 'name' | 'parentId' | 'type' | 'createdAt' | 'updatedAt'>,
+    real: Pick<
+      TreeNode,
+      | 'id'
+      | 'spaceId'
+      | 'name'
+      | 'parentId'
+      | 'type'
+      | 'iconKey'
+      | 'color'
+      | 'description'
+      | 'createdAt'
+      | 'updatedAt'
+    >,
   ) => void;
   removeNodeLocal: (nodeId: string) => void;
   renameNodeLocal: (nodeId: string, name: string) => void;
+  updateNodeLocal: (
+    nodeId: string,
+    patch: Partial<Pick<TreeNode, 'name' | 'iconKey' | 'color' | 'description'>>,
+  ) => void;
   selectFolder: (id: string | null) => void;
   selectNode: (nodeId: string | null, documentId?: string | null) => void;
   toggleRightPanel: () => void;
@@ -63,14 +88,15 @@ interface VaultState {
   setRenamingNodeId: (id: string | null) => void;
   setPresetId: (id: string | null) => void;
   setOnboarded: (value: boolean) => void;
-  setActiveRootId: (id: string | null) => void;
-  setHealthViewMode: (mode: 'body' | 'tree') => void;
+  setLayoutMode: (mode: VaultLayoutMode) => void;
+  resetCanvasView: () => void;
   setCanvas: (canvas: Partial<{ x: number; y: number; scale: number }>) => void;
 }
 
 export const useVaultStore = create<VaultState>()(
   persist(
     (set) => ({
+      spaces: [],
       tree: [],
       documents: [],
       nodeOrder: {},
@@ -81,11 +107,25 @@ export const useVaultStore = create<VaultState>()(
       renamingNodeId: null,
       presetId: null,
       onboarded: false,
-      activeRootId: null,
-      healthViewMode: 'body',
+      activeSpaceId: null,
+      hasHydrated: false,
+      layoutMode: 'tree',
       canvas: { x: 0, y: 0, scale: 1 },
+      setSpaces: (spaces) => set({ spaces }),
+      setActiveSpaceId: (id) => set({ activeSpaceId: id }),
+      setHasHydrated: (value) => set({ hasHydrated: value }),
       setTree: (tree) => set({ tree }),
       setDocuments: (documents) => set({ documents }),
+      upsertDocument: (document) =>
+        set((s) => {
+          const index = s.documents.findIndex((entry) => entry.id === document.id);
+          if (index >= 0) {
+            const documents = [...s.documents];
+            documents[index] = { ...documents[index], ...document };
+            return { documents };
+          }
+          return { documents: [...s.documents, document] };
+        }),
       setNodeOrder: (nodeOrder) => set({ nodeOrder }),
       applyOrderedTree: (apiTree) =>
         set((s) => {
@@ -150,6 +190,10 @@ export const useVaultStore = create<VaultState>()(
         set((s) => ({
           tree: applyNodeOrder(renameNodeInTree(s.tree, nodeId, name), s.nodeOrder),
         })),
+      updateNodeLocal: (nodeId, patch) =>
+        set((s) => ({
+          tree: applyNodeOrder(updateNodeInTree(s.tree, nodeId, patch), s.nodeOrder),
+        })),
       selectFolder: (id) =>
         set({ selectedFolderId: id, selectedNodeId: id, selectedDocumentId: null }),
       selectNode: (nodeId, documentId = null) =>
@@ -163,8 +207,11 @@ export const useVaultStore = create<VaultState>()(
       setRenamingNodeId: (id) => set({ renamingNodeId: id }),
       setPresetId: (id) => set({ presetId: id }),
       setOnboarded: (value) => set({ onboarded: value }),
-      setActiveRootId: (id) => set({ activeRootId: id }),
-      setHealthViewMode: (mode) => set({ healthViewMode: mode }),
+      setLayoutMode: (mode) => set({ layoutMode: mode }),
+      resetCanvasView: () =>
+        set({
+          canvas: { x: 0, y: 0, scale: 1 },
+        }),
       setCanvas: (canvas) =>
         set((s) => ({ canvas: { ...s.canvas, ...canvas } })),
     }),
@@ -174,11 +221,14 @@ export const useVaultStore = create<VaultState>()(
         rightPanelOpen: s.rightPanelOpen,
         presetId: s.presetId,
         onboarded: s.onboarded,
-        activeRootId: s.activeRootId,
-        healthViewMode: s.healthViewMode,
+        activeSpaceId: s.activeSpaceId,
+        layoutMode: s.layoutMode,
         canvas: s.canvas,
         nodeOrder: s.nodeOrder,
       }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
     },
   ),
 );
@@ -192,7 +242,7 @@ interface ThemeState {
 export const useThemeStore = create<ThemeState>()(
   persist(
     (set) => ({
-      theme: 'light',
+      theme: 'dark',
       toggle: () =>
         set((s) => {
           const next = s.theme === 'light' ? 'dark' : 'light';

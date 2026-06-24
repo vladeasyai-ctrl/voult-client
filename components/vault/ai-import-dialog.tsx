@@ -1,99 +1,115 @@
 'use client';
 
-import { Loader2, Sparkles, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { Loader2, QrCode, Sparkles, Upload, X } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/cn';
-import { AI_IMPORT_ACCEPT } from '@/lib/ai-import';
-import type { ImportProposal } from '@/lib/types';
-import { useAiImport } from '@/hooks/use-ai-import';
+import { AI_IMPORT_ACCEPT, isAiImportFile } from '@/lib/ai-import';
+import { t } from '@/lib/i18n';
+import type { DropTarget } from '@/lib/types';
+import { useRemoteUploadSession } from '@/hooks/use-remote-upload';
+import { useVaultStore } from '@/stores/vault-store';
 
-const inputClassName =
-  'w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2.5 text-sm outline-none focus:border-[var(--color-accent)]';
+type ImportTab = 'file' | 'qr';
 
 interface AiImportDialogProps {
   open: boolean;
   onClose: () => void;
-  initialFile?: File | null;
+  onEnqueue: (files: File[], dropTarget?: DropTarget | null) => void;
+  onEnqueueImportSession: (importId: string, dropTarget?: DropTarget | null) => void;
 }
 
-export function AiImportDialog({ open, onClose, initialFile }: AiImportDialogProps) {
+function formatCountdown(expiresAt: string): string {
+  const seconds = Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000));
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+export function AiImportDialog({
+  open,
+  onClose,
+  onEnqueue,
+  onEnqueueImportSession,
+}: AiImportDialogProps) {
+  const [busy, setBusy] = useState(false);
+  const [pickError, setPickError] = useState<string | null>(null);
+  const [tab, setTab] = useState<ImportTab>('file');
+  const selectedFolderId = useVaultStore((s) => s.selectedFolderId);
+  const startedRef = useRef(false);
   const {
     session,
-    fileName,
-    busy,
-    error,
-    uploadFile,
-    runAnalysis,
-    confirmWithDefaults,
-    discard,
-    reset,
-  } = useAiImport();
-  const [title, setTitle] = useState('');
-  const [summary, setSummary] = useState('');
-  const [folderPath, setFolderPath] = useState('');
-  const [tags, setTags] = useState('');
-  const startedRef = useRef<string | null>(null);
+    uploadUrl,
+    error: qrError,
+    loading: qrLoading,
+    startSession,
+    closeSession,
+  } = useRemoteUploadSession();
+  const [countdown, setCountdown] = useState('');
 
   useEffect(() => {
     if (!open) {
-      reset();
-      startedRef.current = null;
-      setTitle('');
-      setSummary('');
-      setFolderPath('');
-      setTags('');
+      startedRef.current = false;
+      void closeSession();
+      setTab('file');
+      return;
     }
-  }, [open, reset]);
+    if (tab !== 'qr') {
+      if (startedRef.current) {
+        startedRef.current = false;
+        void closeSession();
+      }
+      return;
+    }
+    if (startedRef.current) return;
+    startedRef.current = true;
+    void startSession({
+      parentId: selectedFolderId,
+      mode: 'AI_IMPORT',
+      onImportCreated: (importId) => {
+        onEnqueueImportSession(
+          importId,
+          selectedFolderId ? { kind: 'folder', nodeId: selectedFolderId } : null,
+        );
+      },
+    });
+  }, [open, tab, selectedFolderId, startSession, closeSession, onEnqueueImportSession]);
 
   useEffect(() => {
-    if (!open || !initialFile) return;
-    const key = `${initialFile.name}:${initialFile.size}:${initialFile.lastModified}`;
-    if (startedRef.current === key) return;
-    startedRef.current = key;
-    void (async () => {
-      const created = await uploadFile(initialFile);
-      if (created) await runAnalysis(created.id);
-    })();
-  }, [open, initialFile, uploadFile, runAnalysis]);
-
-  useEffect(() => {
-    if (session?.proposal) {
-      applyProposal(session.proposal);
+    if (!session?.expiresAt) {
+      setCountdown('');
+      return;
     }
-  }, [session?.proposal]);
+    const tick = () => setCountdown(formatCountdown(session.expiresAt));
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [session?.expiresAt]);
 
-  const applyProposal = (proposal: ImportProposal) => {
-    setTitle(proposal.title);
-    setSummary(proposal.summary);
-    setFolderPath(proposal.folderPath.join(' / '));
-    setTags(proposal.tags.join(', '));
+  const isExpired = useMemo(() => {
+    if (!session) return false;
+    return session.status !== 'ACTIVE' || new Date(session.expiresAt).getTime() <= Date.now();
+  }, [session]);
+
+  const handleClose = () => {
+    void closeSession();
+    onClose();
   };
 
   if (!open) return null;
 
-  const analyzing = session?.status === 'ANALYZING';
-  const ready = session?.status === 'PROPOSAL_READY' && session.proposal;
-
-  const handleConfirm = async () => {
-    if (!ready) return;
-    const ok = await confirmWithDefaults({
-      title: title.trim() || session.proposal!.title,
-      summary: summary.trim(),
-      tags: tags
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean),
-      folderPath: folderPath
-        .split('/')
-        .map((p) => p.trim())
-        .filter(Boolean),
-    });
-    if (ok) onClose();
-  };
-
-  const handleDiscard = async () => {
-    await discard();
-    onClose();
+  const handleFiles = (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return;
+    const files = Array.from(fileList).filter(isAiImportFile);
+    if (files.length === 0) {
+      setPickError(t('vault.aiImportSupported'));
+      return;
+    }
+    setPickError(null);
+    setBusy(true);
+    onEnqueue(files, selectedFolderId ? { kind: 'folder', nodeId: selectedFolderId } : null);
+    setBusy(false);
+    handleClose();
   };
 
   return (
@@ -102,119 +118,134 @@ export function AiImportDialog({ open, onClose, initialFile }: AiImportDialogPro
         <div className="flex items-center justify-between border-b border-[var(--color-border)] px-5 py-4">
           <div className="flex items-center gap-2">
             <Sparkles size={18} className="text-[var(--color-accent)]" />
-            <h2 className="font-[family-name:var(--font-display)] text-lg">AI-импорт</h2>
+            <h2 className="font-[family-name:var(--font-display)] text-lg">{t('vault.aiImportTitle')}</h2>
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="rounded-lg p-2 text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]"
           >
             <X size={16} />
           </button>
         </div>
 
-        <div className="space-y-4 p-5">
-          {fileName && (
-            <p className="text-sm text-[var(--color-muted)]">
-              Файл: <span className="text-[var(--color-text)]">{fileName}</span>
-            </p>
-          )}
+        <div className="flex gap-1 border-b border-[var(--color-border)] p-2">
+          <TabButton active={tab === 'file'} onClick={() => setTab('file')} icon={Upload} label={t('vault.aiImportFromComputer')} />
+          <TabButton active={tab === 'qr'} onClick={() => setTab('qr')} icon={QrCode} label={t('vault.aiImportFromPhone')} />
+        </div>
 
-          {!session && !busy && (
+        <div className="space-y-4 p-5">
+          {tab === 'file' && (
             <label className="flex cursor-pointer flex-col items-center gap-3 rounded-2xl border border-dashed border-[var(--color-border)] p-8 text-center hover:border-[var(--color-accent)]">
-              <Sparkles size={24} className="text-[var(--color-accent)]" />
-              <span className="text-sm">Выберите фото или PDF для AI-импорта</span>
+              {busy ? (
+                <Loader2 size={24} className="animate-spin text-[var(--color-accent)]" />
+              ) : (
+                <Sparkles size={24} className="text-[var(--color-accent)]" />
+              )}
+              <span className="text-sm">{t('vault.aiImportPickFile')}</span>
+              <span className="text-xs text-[var(--color-muted)]">{t('vault.aiImportSupported')}</span>
+              {pickError && (
+                <span className="text-xs text-amber-600 dark:text-amber-400">{pickError}</span>
+              )}
               <input
                 type="file"
                 accept={AI_IMPORT_ACCEPT}
+                multiple
                 className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void uploadFile(file).then((s) => s && runAnalysis(s.id));
-                }}
+                onChange={(e) => handleFiles(e.target.files)}
               />
             </label>
           )}
 
-          {analyzing && (
-            <div className="flex items-center gap-3 rounded-xl bg-[var(--color-surface-2)] px-4 py-3 text-sm">
-              <Loader2 size={16} className="animate-spin text-[var(--color-accent)]" />
-              AI анализирует файл…
-            </div>
-          )}
-
-          {error && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
-              {error}
-            </div>
-          )}
-
-          {ready && (
-            <div className="space-y-3">
-              {session.proposal!.createMissingFolders && (
-                <p className="rounded-lg bg-[var(--color-accent-soft)] px-3 py-2 text-xs text-[var(--color-accent)]">
-                  Будут созданы папки: {session.proposal!.folderPath.join(' → ')}
-                </p>
+          {tab === 'qr' && (
+            <div className="flex flex-col items-center gap-4">
+              {qrLoading && (
+                <p className="text-sm text-[var(--color-muted)]">{t('common.loading')}</p>
               )}
-              <Field label="Название">
-                <input value={title} onChange={(e) => setTitle(e.target.value)} className={inputClassName} />
-              </Field>
-              <Field label="Краткое описание (для поиска)">
-                <textarea
-                  value={summary}
-                  onChange={(e) => setSummary(e.target.value)}
-                  rows={3}
-                  className={cn(inputClassName, 'resize-none')}
-                />
-              </Field>
-              <Field label="Папка (через / )">
-                <input
-                  value={folderPath}
-                  onChange={(e) => setFolderPath(e.target.value)}
-                  className={inputClassName}
-                  placeholder="Документы / Личное / Паспорта"
-                />
-              </Field>
-              <Field label="Теги (через запятую)">
-                <input value={tags} onChange={(e) => setTags(e.target.value)} className={inputClassName} />
-              </Field>
+              {!qrLoading && uploadUrl && !isExpired && (
+                <>
+                  <div className="rounded-2xl bg-white p-4 shadow-inner">
+                    <QRCodeSVG value={uploadUrl} size={180} level="M" includeMargin />
+                  </div>
+                  <p className="text-center text-sm text-[var(--color-muted)]">
+                    {t('vault.aiImportQrHint')}
+                  </p>
+                  {countdown && (
+                    <p className="text-xs text-[var(--color-muted)]">
+                      {t('vault.remoteUploadExpires', { time: countdown })}
+                    </p>
+                  )}
+                </>
+              )}
+              {isExpired && (
+                <p className="text-sm text-amber-600">{t('vault.remoteUploadExpired')}</p>
+              )}
+              {qrError && <p className="text-sm text-red-500">{qrError}</p>}
+              {!isExpired && session && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    startedRef.current = false;
+                    void startSession({
+                      parentId: selectedFolderId,
+                      mode: 'AI_IMPORT',
+                      onImportCreated: (importId) => {
+                        onEnqueueImportSession(
+                          importId,
+                          selectedFolderId ? { kind: 'folder', nodeId: selectedFolderId } : null,
+                        );
+                      },
+                    });
+                  }}
+                  className="text-sm text-[var(--color-muted)] hover:text-[var(--color-accent)]"
+                >
+                  {t('vault.remoteUploadRefreshQr')}
+                </button>
+              )}
             </div>
           )}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-[var(--color-border)] px-5 py-4">
+        <div className="flex justify-end border-t border-[var(--color-border)] px-5 py-4">
           <button
             type="button"
-            onClick={handleDiscard}
-            disabled={busy}
-            className="rounded-xl px-4 py-2 text-sm text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]"
+            onClick={handleClose}
+            className={cn(
+              'rounded-xl px-4 py-2 text-sm text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]',
+            )}
           >
-            Отклонить
+            {t('common.close')}
           </button>
-          {ready && (
-            <button
-              type="button"
-              onClick={handleConfirm}
-              disabled={busy}
-              className={cn(
-                'rounded-xl bg-[var(--color-accent)] px-4 py-2 text-sm text-white',
-                'hover:opacity-90 disabled:opacity-50',
-              )}
-            >
-              Подтвердить
-            </button>
-          )}
         </div>
       </div>
     </div>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function TabButton({
+  active,
+  onClick,
+  icon: Icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ComponentType<{ size?: number }>;
+  label: string;
+}) {
   return (
-    <label className="block space-y-1.5 text-sm">
-      <span className="text-[var(--color-muted)]">{label}</span>
-      {children}
-    </label>
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm transition',
+        active
+          ? 'bg-[var(--color-accent-soft)] text-[var(--color-accent)]'
+          : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]',
+      )}
+    >
+      <Icon size={16} />
+      {label}
+    </button>
   );
 }

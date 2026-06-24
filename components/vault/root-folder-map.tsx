@@ -1,10 +1,12 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Folder, Plus, X } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { findPresetByRootName } from '@/lib/presets';
+import { t } from '@/lib/i18n';
 import type { TreeNode } from '@/lib/types';
+import { FolderAppearance } from '@/components/ui/folder-appearance';
+import { resolveFolderAppearance } from '@/lib/folder-theme';
 
 interface RootFolderMapProps {
   roots: TreeNode[];
@@ -43,41 +45,41 @@ export function RootFolderMap({
           type="button"
           onClick={onClose}
           className="absolute right-5 top-5 rounded-lg p-2 text-[var(--color-muted)] hover:bg-[var(--color-surface-2)]"
-          title="Закрыть"
+          title={t('common.close')}
         >
           <X size={18} />
         </button>
 
         <p className="text-xs uppercase tracking-[0.2em] text-[var(--color-muted)]">
-          Карта хранилища
+          {t('vault.storageMap')}
         </p>
         <h2 className="mt-2 font-[family-name:var(--font-display)] text-3xl">
-          Корневые ветки
+          {t('vault.rootBranches')}
         </h2>
         <p className="mt-2 max-w-lg text-sm text-[var(--color-muted)]">
-          Выберите ветку — на холсте отобразится только она и её содержимое.
+          {t('vault.storageMapHint')}
         </p>
 
         {roots.length === 0 ? (
           <div className="mt-8 rounded-2xl border border-dashed border-[var(--color-border)] p-8 text-center">
             <p className="text-sm text-[var(--color-muted)]">
-              Пока нет корневых веток
+              {t('vault.noRootBranches')}
             </p>
             <button
               type="button"
               onClick={onAddRoot}
               className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-accent-soft)] px-4 py-2 text-sm text-[var(--color-accent)]"
             >
-              <Plus size={14} /> Создать первую ветку
+              <Plus size={14} /> {t('vault.createFirstBranch')}
             </button>
           </div>
         ) : (
           <div className="mt-8 grid gap-4 sm:grid-cols-2">
             {roots.map((root) => {
-              const preset = findPresetByRootName(root.name);
               const childFolders = root.children.filter((c) => c.type === 'FOLDER');
               const totalNodes = countDescendants(root);
               const isActive = root.id === activeRootId;
+              const appearance = resolveFolderAppearance(root.iconKey, root.color);
 
               return (
                 <button
@@ -93,20 +95,23 @@ export function RootFolderMap({
                   )}
                 >
                   <div className="flex items-start gap-3">
-                    <span className="text-3xl leading-none">
-                      {preset?.emoji ?? (
-                        <Folder
-                          size={28}
-                          className="text-[var(--color-accent)]"
-                        />
+                    <div
+                      className={cn(
+                        'flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border',
+                        appearance.theme.containerClassName,
                       )}
-                    </span>
+                    >
+                      <FolderAppearance
+                        iconKey={root.iconKey}
+                        color={root.color}
+                        size={24}
+                      />
+                    </div>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-lg font-medium">{root.name}</p>
                       <p className="mt-1 text-xs text-[var(--color-muted)]">
-                        {childFolders.length}{' '}
-                        {childFolders.length === 1 ? 'ветка' : 'веток'}
-                        {totalNodes > 0 && ` · ${totalNodes} элементов`}
+                        {t('vault.branchCount', { count: childFolders.length })}
+                        {totalNodes > 0 && ` · ${t('vault.itemCount', { count: totalNodes })}`}
                       </p>
                     </div>
                   </div>
@@ -131,7 +136,7 @@ export function RootFolderMap({
 
                   {isActive && (
                     <p className="mt-3 text-xs font-medium text-[var(--color-accent)]">
-                      Сейчас на холсте
+                      {t('vault.onCanvasNow')}
                     </p>
                   )}
                 </button>
@@ -146,7 +151,7 @@ export function RootFolderMap({
             onClick={onAddRoot}
             className="mt-6 inline-flex items-center gap-1.5 text-sm text-[var(--color-muted)] underline-offset-4 hover:underline"
           >
-            <Plus size={14} /> Добавить корневую ветку
+            <Plus size={14} /> {t('vault.addRootBranch')}
           </button>
         )}
       </motion.div>
