@@ -63,7 +63,7 @@ export function getDemoFocusTarget(
 
   return {
     mode: 'nodes',
-    ids: ['amendment', 'websiteProject', 'acme', 'clients', 'work'],
+    ids: ['websiteProject', 'mockups', 'spec', 'amendmentSlot'],
   };
 }
 
@@ -154,7 +154,7 @@ function paddedBounds(bounds: DemoRect, padding: number): DemoRect {
 
 export function computeViewportTransform(
   bounds: DemoRect,
-  contentSize: { width: number; height: number },
+  contentSize: { width: number; height: number; offsetX?: number; offsetY?: number },
   viewportSize: { width: number; height: number },
   padding: number,
   fixedScale?: number,
@@ -162,12 +162,14 @@ export function computeViewportTransform(
   const vw = Math.max(viewportSize.width, 1);
   const vh = Math.max(viewportSize.height, 1);
   const padded = paddedBounds(bounds, padding);
+  const contentOffsetX = contentSize.offsetX ?? 0;
+  const contentOffsetY = contentSize.offsetY ?? 0;
 
   const scale =
     fixedScale ?? Math.min(vw / padded.width, vh / padded.height, MAX_SCALE);
 
-  const focusCx = padded.x + padded.width / 2;
-  const focusCy = padded.y + padded.height / 2;
+  const focusCx = padded.x + padded.width / 2 + contentOffsetX;
+  const focusCy = padded.y + padded.height / 2 + contentOffsetY;
   const contentCx = contentSize.width / 2;
   const contentCy = contentSize.height / 2;
 

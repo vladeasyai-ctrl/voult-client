@@ -1,7 +1,7 @@
 'use client';
 
 import { Command } from 'cmdk';
-import { FilePlus, FolderPlus, Search, Upload } from 'lucide-react';
+import { FilePlus, FolderPlus, QrCode, Search, Upload } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/cn';
 import { flattenTree } from '@/lib/tree-utils';
@@ -11,10 +11,12 @@ import { useUpload } from '@/hooks/use-upload';
 import { useVaultStore } from '@/stores/vault-store';
 import { api } from '@/lib/api';
 import { NameDialog } from '@/components/vault/name-dialog';
+import { RemoteUploadDialog } from '@/components/vault/remote-upload-dialog';
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
+  const [remoteUploadOpen, setRemoteUploadOpen] = useState(false);
   const [query, setQuery] = useState('');
   const tree = useVaultStore((s) => s.tree);
   const documents = useVaultStore((s) => s.documents);
@@ -48,10 +50,10 @@ export function CommandPalette() {
       return;
     }
     const timer = setTimeout(() => {
-      api.searchDocuments(query).then(setSearchResults).catch(() => setSearchResults([]));
+      api.searchDocuments(query, activeSpaceId).then(setSearchResults).catch(() => setSearchResults([]));
     }, 200);
     return () => clearTimeout(timer);
-  }, [query, documents]);
+  }, [query, documents, activeSpaceId]);
 
   return (
     <>
@@ -110,6 +112,14 @@ export function CommandPalette() {
                       setOpen(false);
                     };
                     input.click();
+                  }}
+                />
+                <PaletteItem
+                  icon={QrCode}
+                  label={t('vault.remoteUploadFromPhone')}
+                  onSelect={() => {
+                    setOpen(false);
+                    setRemoteUploadOpen(true);
                   }}
                 />
               </Command.Group>
@@ -176,6 +186,12 @@ export function CommandPalette() {
         title={t('vault.newFolderTitle')}
         description={folderDialogDescription}
         placeholder={t('vault.newFolderPlaceholder')}
+      />
+
+      <RemoteUploadDialog
+        open={remoteUploadOpen}
+        onClose={() => setRemoteUploadOpen(false)}
+        parentId={selectedFolderId}
       />
     </>
   );

@@ -10,6 +10,7 @@ import type {
   Document,
   DownloadUrlResponse,
   ImportSession,
+  RemoteUploadSession,
   Space,
   TreeNode,
 } from './types';
@@ -73,10 +74,18 @@ export const api = {
 
   getSpaceTree: (spaceId: string) => request<TreeNode[]>(`/api/spaces/${spaceId}/tree`),
 
-  createSpace: (name: string, presetId?: string | null) =>
+  createSpace: (
+    name: string,
+    presetId?: string | null,
+    settings?: Record<string, unknown> | null,
+  ) =>
     request<Space>('/api/spaces', {
       method: 'POST',
-      body: JSON.stringify({ name, presetId: presetId ?? null }),
+      body: JSON.stringify({
+        name,
+        presetId: presetId ?? null,
+        settings: settings ?? null,
+      }),
     }),
 
   updateSpace: (id: string, name: string, presetId?: string | null) =>
@@ -87,16 +96,59 @@ export const api = {
 
   deleteSpace: (id: string) => request(`/api/spaces/${id}`, { method: 'DELETE' }),
 
-  createFolder: (name: string, spaceId: string, parentId: string | null) =>
+  createFolder: (
+    name: string,
+    spaceId: string,
+    parentId: string | null,
+    appearance?: {
+      iconKey?: string;
+      color?: string;
+      description?: string;
+    },
+  ) =>
     request<{
       id: string;
       spaceId: string;
       name: string;
       parentId: string | null;
       type: string;
+      iconKey: string | null;
+      color: string | null;
+      description: string | null;
     }>('/api/nodes', {
       method: 'POST',
-      body: JSON.stringify({ name, spaceId, parentId, type: 'FOLDER' }),
+      body: JSON.stringify({
+        name,
+        spaceId,
+        parentId,
+        type: 'FOLDER',
+        iconKey: appearance?.iconKey,
+        color: appearance?.color,
+        description: appearance?.description,
+      }),
+    }),
+
+  updateNode: (
+    id: string,
+    payload: {
+      name?: string;
+      iconKey?: string;
+      color?: string;
+      description?: string | null;
+    },
+  ) =>
+    request<{
+      id: string;
+      spaceId: string;
+      name: string;
+      parentId: string | null;
+      type: string;
+      iconKey: string | null;
+      color: string | null;
+      description: string | null;
+    }>(`/api/nodes/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
     }),
 
   renameNode: (id: string, name: string) =>
@@ -114,10 +166,16 @@ export const api = {
   deleteFolder: (id: string) =>
     request(`/api/nodes/${id}`, { method: 'DELETE' }),
 
-  getDocuments: () => request<Document[]>('/api/documents/search'),
+  getDocuments: (spaceId: string) =>
+    request<Document[]>(`/api/documents/search?spaceId=${encodeURIComponent(spaceId)}`),
 
-  searchDocuments: (q: string) =>
-    request<Document[]>(`/api/documents/search?q=${encodeURIComponent(q)}`),
+  searchDocuments: (q: string, spaceId?: string | null) => {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (spaceId) params.set('spaceId', spaceId);
+    const qs = params.toString();
+    return request<Document[]>(`/api/documents/search${qs ? `?${qs}` : ''}`);
+  },
 
   getDocument: (id: string) => request<Document>(`/api/documents/${id}`),
 
@@ -129,10 +187,17 @@ export const api = {
     parentId: string | null,
     assetId: string,
     description?: string,
+    enrichWithAi?: boolean,
   ) =>
     request<Document>('/api/documents', {
       method: 'POST',
-      body: JSON.stringify({ title, parentId, assetId, description }),
+      body: JSON.stringify({
+        title,
+        parentId,
+        assetId,
+        description,
+        enrichWithAi: enrichWithAi ?? false,
+      }),
     }),
 
   deleteDocument: (id: string) =>
@@ -144,10 +209,19 @@ export const api = {
     return request<Asset>('/api/assets/upload', { method: 'POST', body: form });
   },
 
-  getDownloadUrl: (assetId: string) =>
-    request<DownloadUrlResponse>(`/api/assets/${assetId}/download`),
+  getDownloadUrl: (assetId: string, filename?: string) => {
+    const params = new URLSearchParams();
+    if (filename) params.set('filename', filename);
+    const qs = params.toString();
+    return request<DownloadUrlResponse>(`/api/assets/${assetId}/download${qs ? `?${qs}` : ''}`);
+  },
 
   getAsset: (assetId: string) => request<Asset>(`/api/assets/${assetId}`),
+
+  getAssetTextPreview: (assetId: string) =>
+    request<{ text: string; totalLength: number; truncated: boolean }>(
+      `/api/assets/${assetId}/text-preview`,
+    ),
 
   createImport: (file: File) => {
     const form = new FormData();
@@ -175,6 +249,22 @@ export const api = {
 
   discardImport: (id: string) =>
     request(`/api/imports/${id}/discard`, { method: 'POST' }),
+
+  createRemoteUploadSession: (
+    parentId?: string | null,
+    options?: { spaceId?: string | null; mode?: 'DIRECT' | 'AI_IMPORT' },
+  ) =>
+    request<RemoteUploadSession>('/api/remote-upload-sessions', {
+      method: 'POST',
+      body: JSON.stringify({
+        parentId: parentId ?? null,
+        spaceId: options?.spaceId ?? null,
+        mode: options?.mode ?? 'DIRECT',
+      }),
+    }),
+
+  closeRemoteUploadSession: (id: string) =>
+    request(`/api/remote-upload-sessions/${id}/close`, { method: 'POST' }),
 
   planAiCommand: (message: string) =>
     request<AiPlanResponse>('/api/ai/plan', {

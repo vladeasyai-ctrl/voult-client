@@ -74,7 +74,7 @@ export function AiImportCard({ item, busy, onConfirm, onReject, onDismiss }: AiI
         .map((tag) => tag.trim())
         .filter(Boolean),
       folderPath: folderPath
-        .split('/')
+        .split(/\s*\/\s*/)
         .map((part) => part.trim())
         .filter(Boolean),
       parentId: item.dropTarget?.kind === 'folder' ? item.dropTarget.nodeId : null,

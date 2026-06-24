@@ -1,14 +1,16 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Folder, Upload } from 'lucide-react';
+import { Upload } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { cn } from '@/lib/cn';
+import { resolveFolderAppearance } from '@/lib/folder-theme';
 import { getBreadcrumb, getChildren } from '@/lib/tree-utils';
 import type { DropTarget } from '@/lib/types';
 import { useVaultStore } from '@/stores/vault-store';
 import { Breadcrumbs } from '@/components/vault/breadcrumbs';
 import { FileTypeIcon } from '@/components/ui/file-type-icon';
+import { FolderAppearance } from '@/components/ui/folder-appearance';
 import { t } from '@/lib/i18n';
 
 interface FolderContentProps {
@@ -22,6 +24,7 @@ export function FolderContent({ onUploadFiles }: FolderContentProps) {
   const selectedNodeId = useVaultStore((s) => s.selectedNodeId);
   const selectFolder = useVaultStore((s) => s.selectFolder);
   const selectNode = useVaultStore((s) => s.selectNode);
+  const setRightPanelOpen = useVaultStore((s) => s.setRightPanelOpen);
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
 
@@ -105,6 +108,9 @@ export function FolderContent({ onUploadFiles }: FolderContentProps) {
             const doc = docByNode[node.id];
             const isFolder = node.type === 'FOLDER';
             const isSelected = selectedNodeId === node.id;
+            const folderTheme = isFolder
+              ? resolveFolderAppearance(node.iconKey, node.color).theme
+              : null;
 
             return (
               <motion.button
@@ -114,8 +120,13 @@ export function FolderContent({ onUploadFiles }: FolderContentProps) {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.03 }}
                 onClick={() => {
-                  if (isFolder) selectFolder(node.id);
-                  else if (doc) selectNode(node.id, doc.id);
+                  if (isFolder) {
+                    selectNode(node.id);
+                    setRightPanelOpen(true);
+                  } else if (doc) {
+                    selectNode(node.id, doc.id);
+                    setRightPanelOpen(true);
+                  }
                 }}
                 onDoubleClick={() => isFolder && selectFolder(node.id)}
                 className={cn(
@@ -123,9 +134,18 @@ export function FolderContent({ onUploadFiles }: FolderContentProps) {
                   isSelected && 'border-[var(--color-accent)] ring-2 ring-[var(--color-accent)]/20',
                 )}
               >
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[var(--color-surface-2)]">
+                <div
+                  className={cn(
+                    'flex h-12 w-12 items-center justify-center rounded-xl',
+                    isFolder ? folderTheme?.containerClassName : 'bg-[var(--color-surface-2)]',
+                  )}
+                >
                   {isFolder ? (
-                    <Folder size={22} className="text-[var(--color-accent)]" />
+                    <FolderAppearance
+                      iconKey={node.iconKey}
+                      color={node.color}
+                      size={22}
+                    />
                   ) : (
                     <FileTypeIcon
                       mimeType={doc?.mimeType}

@@ -17,6 +17,7 @@ import {
   mergePendingIntoTree,
   removeNodeFromTree,
   renameNodeInTree,
+  updateNodeInTree,
   replaceNodeIdInTree,
 } from '@/lib/tree-mutations';
 
@@ -35,12 +36,15 @@ interface VaultState {
   presetId: string | null;
   onboarded: boolean;
   activeSpaceId: string | null;
+  hasHydrated: boolean;
   layoutMode: VaultLayoutMode;
   canvas: { x: number; y: number; scale: number };
   setSpaces: (spaces: Space[]) => void;
   setActiveSpaceId: (id: string | null) => void;
+  setHasHydrated: (value: boolean) => void;
   setTree: (tree: TreeNode[]) => void;
   setDocuments: (documents: Document[]) => void;
+  upsertDocument: (document: Document) => void;
   setNodeOrder: (order: NodeOrderMap) => void;
   applyOrderedTree: (tree: TreeNode[]) => void;
   reorderNodeLocal: (
@@ -57,10 +61,26 @@ interface VaultState {
   addPendingFolder: (parentId: string | null, node: TreeNode) => void;
   confirmPendingFolder: (
     tempId: string,
-    real: Pick<TreeNode, 'id' | 'spaceId' | 'name' | 'parentId' | 'type' | 'createdAt' | 'updatedAt'>,
+    real: Pick<
+      TreeNode,
+      | 'id'
+      | 'spaceId'
+      | 'name'
+      | 'parentId'
+      | 'type'
+      | 'iconKey'
+      | 'color'
+      | 'description'
+      | 'createdAt'
+      | 'updatedAt'
+    >,
   ) => void;
   removeNodeLocal: (nodeId: string) => void;
   renameNodeLocal: (nodeId: string, name: string) => void;
+  updateNodeLocal: (
+    nodeId: string,
+    patch: Partial<Pick<TreeNode, 'name' | 'iconKey' | 'color' | 'description'>>,
+  ) => void;
   selectFolder: (id: string | null) => void;
   selectNode: (nodeId: string | null, documentId?: string | null) => void;
   toggleRightPanel: () => void;
@@ -88,12 +108,24 @@ export const useVaultStore = create<VaultState>()(
       presetId: null,
       onboarded: false,
       activeSpaceId: null,
+      hasHydrated: false,
       layoutMode: 'tree',
       canvas: { x: 0, y: 0, scale: 1 },
       setSpaces: (spaces) => set({ spaces }),
       setActiveSpaceId: (id) => set({ activeSpaceId: id }),
+      setHasHydrated: (value) => set({ hasHydrated: value }),
       setTree: (tree) => set({ tree }),
       setDocuments: (documents) => set({ documents }),
+      upsertDocument: (document) =>
+        set((s) => {
+          const index = s.documents.findIndex((entry) => entry.id === document.id);
+          if (index >= 0) {
+            const documents = [...s.documents];
+            documents[index] = { ...documents[index], ...document };
+            return { documents };
+          }
+          return { documents: [...s.documents, document] };
+        }),
       setNodeOrder: (nodeOrder) => set({ nodeOrder }),
       applyOrderedTree: (apiTree) =>
         set((s) => {
@@ -158,6 +190,10 @@ export const useVaultStore = create<VaultState>()(
         set((s) => ({
           tree: applyNodeOrder(renameNodeInTree(s.tree, nodeId, name), s.nodeOrder),
         })),
+      updateNodeLocal: (nodeId, patch) =>
+        set((s) => ({
+          tree: applyNodeOrder(updateNodeInTree(s.tree, nodeId, patch), s.nodeOrder),
+        })),
       selectFolder: (id) =>
         set({ selectedFolderId: id, selectedNodeId: id, selectedDocumentId: null }),
       selectNode: (nodeId, documentId = null) =>
@@ -190,6 +226,9 @@ export const useVaultStore = create<VaultState>()(
         canvas: s.canvas,
         nodeOrder: s.nodeOrder,
       }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
     },
   ),
 );

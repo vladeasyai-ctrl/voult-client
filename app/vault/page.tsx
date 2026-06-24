@@ -1,12 +1,12 @@
 'use client';
 
+import { useCallback, useEffect, useState } from 'react';
 import { usePreventBrowserFileDrop } from '@/hooks/use-prevent-browser-file-drop';
 import { useUpload } from '@/hooks/use-upload';
 import { useAiImportQueue } from '@/hooks/use-ai-import-queue';
 import { useVaultData } from '@/hooks/use-vault-data';
 import { isAuthenticated } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
 import { AiCommandBar } from '@/components/vault/ai-command-bar';
 import { AiImportDialog } from '@/components/vault/ai-import-dialog';
 import { CommandPalette } from '@/components/vault/command-palette';
@@ -45,12 +45,20 @@ export default function VaultPage() {
     [aiImportQueue],
   );
 
+  const uploadToFolderWithAi = useCallback(
+    async (files: File[], folderId: string) => {
+      await uploadToTarget(files, { kind: 'folder', nodeId: folderId }, true);
+    },
+    [uploadToTarget],
+  );
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[var(--color-canvas)]">
       <TopBar onRefresh={refresh} onOpenAiImport={() => setDialogOpen(true)} />
       <div className="flex min-h-0 flex-1 flex-col">
         <VaultLayout
           onUploadFiles={uploadToTarget}
+          onFolderUploadFiles={uploadToFolderWithAi}
           onAiImportFiles={handleAiImportFiles}
           aiImportQueue={aiImportQueue}
         />
@@ -59,7 +67,10 @@ export default function VaultPage() {
       <AiImportDialog
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
-        onEnqueue={(files) => aiImportQueue.enqueueFiles(files, null)}
+        onEnqueue={(files, dropTarget) => aiImportQueue.enqueueFiles(files, dropTarget ?? null)}
+        onEnqueueImportSession={(importId, dropTarget) =>
+          aiImportQueue.enqueueImportSession(importId, dropTarget ?? null)
+        }
       />
       <CommandPalette />
     </div>

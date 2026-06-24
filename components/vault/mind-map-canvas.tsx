@@ -6,6 +6,7 @@ import {
   Folder,
   FolderPlus,
   GripVertical,
+  Loader2,
   Map,
   MoreHorizontal,
   Network,
@@ -19,7 +20,7 @@ import { t } from '@/lib/i18n';
 import { en } from '@/lib/i18n/en';
 import { buildMindMapLayout } from '@/lib/mind-map-layout';
 import { buildRadialMindMapLayout } from '@/lib/mind-map-radial-layout';
-import { readMindMapNodeDims, resolveMindMapNodeWidth } from '@/lib/mind-map-node-theme';
+import { readMindMapNodeDims, readMindMapActionDims, resolveMindMapNodeWidth } from '@/lib/mind-map-node-theme';
 import { getFileTypeBorderColor } from '@/lib/file-type';
 import {
   canvasPointFromClient,
@@ -33,17 +34,31 @@ import {
 import { removeFromOrderMap } from '@/lib/node-order';
 import { applyTreeMove } from '@/lib/tree-move-utils';
 import { createPendingFolder, isPendingNodeId, suggestChildFolderName } from '@/lib/tree-mutations';
-import { findPresetByRootName, type VaultPreset } from '@/lib/presets';
+import { seedPresetFolders } from '@/lib/seed-preset-folders';
+import { suggestUniqueSpaceName } from '@/lib/space-names';
+import {
+  findPresetByRootName,
+  getPresetBranches,
+  shouldSeedPresetFolders,
+  type PresetChildTemplate,
+  type PresetSelection,
+} from '@/lib/presets';
+import type { PresetPickerMode } from '@/components/vault/preset-picker';
 import { api } from '@/lib/api';
 import { flattenTree, findNode, sortTreeChildrenForDisplay } from '@/lib/tree-utils';
-import type { DropTarget, TreeNode } from '@/lib/types';
+import type { DropTarget, Space, TreeNode } from '@/lib/types';
 import { AI_IMPORT_UNSUPPORTED_HINT, isAiImportFile } from '@/lib/ai-import';
+import { isAiEnrichmentPending } from '@/lib/remote-upload';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useVaultData, useVaultMutations } from '@/hooks/use-vault-data';
 import { useVaultStore } from '@/stores/vault-store';
 import type { VaultLayoutMode } from '@/stores/vault-store';
 import { NameDialog } from '@/components/vault/name-dialog';
 import { FileTypeIcon } from '@/components/ui/file-type-icon';
+import { ContextMenuItem, ContextMenuPanel } from '@/components/ui/context-menu-panel';
+import { FolderAppearance } from '@/components/ui/folder-appearance';
+import { useDismissOnPointerDown } from '@/hooks/use-dismiss-on-pointer-down';
+import { resolveFolderAppearance } from '@/lib/folder-theme';
 import { PresetPicker } from '@/components/vault/preset-picker';
 import { SpaceMap } from '@/components/vault/space-map';
 import { MindMapEdges } from '@/components/vault/mind-map-edges';
@@ -81,6 +96,7 @@ interface PendingDelete {
 
 interface MindMapCanvasProps {
   onUploadFiles: (files: File[], target?: DropTarget) => Promise<void>;
+  onFolderUploadFiles?: (files: File[], folderId: string) => Promise<void>;
   onAiImportFiles?: (files: File[], target: DropTarget) => void;
 }
 
@@ -89,20 +105,22 @@ async function handleFileDrop(
   target: DropTarget,
   onAiImportFiles: MindMapCanvasProps['onAiImportFiles'],
   onUploadFiles: MindMapCanvasProps['onUploadFiles'],
-): Promise<'ai' | 'upload' | 'unsupported'> {
+): Promise<'ai' | 'upload' | 'unsupported' | 'partial'> {
   const importFiles = files.filter(isAiImportFile);
+  const unsupported = files.filter((f) => !isAiImportFile(f));
+
   if (importFiles.length > 0 && onAiImportFiles) {
     onAiImportFiles(importFiles, target);
-    return 'ai';
+    return unsupported.length > 0 ? 'partial' : 'ai';
   }
-  if (files.some((f) => !isAiImportFile(f)) && importFiles.length === 0) {
+  if (unsupported.length > 0 && importFiles.length === 0) {
     return 'unsupported';
   }
   await onUploadFiles(files, target);
   return 'upload';
 }
 
-export function MindMapCanvas({ onUploadFiles, onAiImportFiles }: MindMapCanvasProps) {
+export function MindMapCanvas({ onUploadFiles, onFolderUploadFiles, onAiImportFiles }: MindMapCanvasProps) {
   const tree = useVaultStore((s) => s.tree);
   const documents = useVaultStore((s) => s.documents);
   const presetId = useVaultStore((s) => s.presetId);
@@ -112,6 +130,7 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFiles }: MindMapCanvasP
   const setOnboarded = useVaultStore((s) => s.setOnboarded);
   const setPresetId = useVaultStore((s) => s.setPresetId);
   const selectNode = useVaultStore((s) => s.selectNode);
+  const setRightPanelOpen = useVaultStore((s) => s.setRightPanelOpen);
   const selectedNodeId = useVaultStore((s) => s.selectedNodeId);
   const renamingNodeId = useVaultStore((s) => s.renamingNodeId);
   const setRenamingNodeId = useVaultStore((s) => s.setRenamingNodeId);
@@ -130,26 +149,70 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFiles }: MindMapCanvasP
 
   const { isLoading } = useVaultData();
   const queryClient = useQueryClient();
-  const { createFolder, renameNode, moveNode, deleteFolder, deleteDocument, invalidate } =
+  const { createFolder, renameNode, moveNode, deleteFolder, deleteDocument, deleteSpace, invalidate } =
     useVaultMutations();
 
+  const [showPresetPicker, setShowPresetPicker] = useState(false);
+  const [presetPickerMode, setPresetPickerMode] = useState<PresetPickerMode>('onboarding');
+
+  const closePresetPicker = useCallback(() => {
+    setShowPresetPicker(false);
+  }, []);
+
+  const openPresetPicker = useCallback((mode: PresetPickerMode) => {
+    setPresetPickerMode(mode);
+    setShowPresetPicker(true);
+  }, []);
+
   const createSpace = useMutation({
-    mutationFn: ({ name, presetId }: { name: string; presetId?: string | null }) =>
-      api.createSpace(name, presetId),
-    onSuccess: (space) => {
-      queryClient.invalidateQueries({ queryKey: ['spaces'] });
+    mutationFn: async ({
+      name,
+      presetId,
+      settings,
+      seedBranches,
+    }: {
+      name: string;
+      presetId?: string | null;
+      settings?: Record<string, unknown> | null;
+      seedBranches?: PresetChildTemplate[];
+    }) => {
+      const space = await api.createSpace(name, presetId, settings);
+      if (seedBranches && seedBranches.length > 0) {
+        await seedPresetFolders(space.id, seedBranches);
+      }
+      const tree = await api.getSpaceTree(space.id);
+      return { space, presetId: presetId ?? null, tree };
+    },
+    onSuccess: ({ space, presetId, tree }) => {
+      queryClient.setQueryData<Space[]>(['spaces'], (current) => {
+        if (!current?.length) return [space];
+        if (current.some((item) => item.id === space.id)) return current;
+        return [...current, space];
+      });
+      queryClient.setQueryData(['space-tree', space.id], tree);
+      useVaultStore.getState().applyOrderedTree(tree);
       setActiveSpaceId(space.id);
+      selectNode(null);
+      setOnboarded(true);
+      setCanvas({ x: 0, y: 0, scale: 1 });
+      if (presetId) {
+        setPresetId(presetId);
+        closePresetPicker();
+      }
+      void queryClient.invalidateQueries({ queryKey: ['spaces'] });
+      void queryClient.invalidateQueries({ queryKey: ['space-tree', space.id] });
     },
   });
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [canvasDragOver, setCanvasDragOver] = useState(false);
+  const [fileDragActive, setFileDragActive] = useState(false);
+  const [hoveredFolderDropId, setHoveredFolderDropId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [dropHint, setDropHint] = useState<string | null>(null);
   const panStart = useRef({ x: 0, y: 0, canvasX: 0, canvasY: 0 });
   const [contextMenu, setContextMenu] = useState<string | null>(null);
-  const [showPresetPicker, setShowPresetPicker] = useState(false);
   const [spaceNameDialogOpen, setSpaceNameDialogOpen] = useState(false);
   const [branchNameDialogOpen, setBranchNameDialogOpen] = useState(false);
   const [showSpaceMap, setShowSpaceMap] = useState(false);
@@ -202,14 +265,13 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFiles }: MindMapCanvasP
 
     if (spaces.length > 0) {
       if (!onboarded) setOnboarded(true);
-      setShowPresetPicker(false);
       return;
     }
 
-    if (!onboarded && spaces.length === 0) {
-      setShowPresetPicker(true);
+    if (!onboarded && !showPresetPicker) {
+      openPresetPicker('onboarding');
     }
-  }, [isLoading, onboarded, spaces.length, setOnboarded]);
+  }, [isLoading, onboarded, spaces.length, showPresetPicker, setOnboarded, openPresetPicker]);
 
   const buildLayout = useCallback(
     (roots: TreeNode[]) =>
@@ -522,6 +584,11 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFiles }: MindMapCanvasP
   };
 
   const handleAddSpace = () => {
+    openPresetPicker('add');
+  };
+
+  const handleEmptySpaceFromPicker = () => {
+    closePresetPicker();
     setSpaceNameDialogOpen(true);
   };
 
@@ -531,33 +598,30 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFiles }: MindMapCanvasP
   };
 
   const handleConfirmSpaceName = (name: string) => {
-    createSpace.mutate(
-      { name },
-      {
-        onSuccess: () => {
-          setOnboarded(true);
-          setCanvas({ x: 0, y: 0, scale: 1 });
-        },
-      },
-    );
+    createSpace.mutate({ name });
   };
 
-  const handlePreset = (preset: VaultPreset) => {
-    createSpace.mutate(
-      { name: preset.rootName, presetId: preset.id },
-      {
-        onSuccess: () => {
-          setPresetId(preset.id);
-          setOnboarded(true);
-          setShowPresetPicker(false);
-        },
-      },
+  const handlePreset = (selection: PresetSelection) => {
+    const { preset, housingType } = selection;
+    const settings = housingType != null ? { housingType } : null;
+    const seedBranches = shouldSeedPresetFolders(preset)
+      ? getPresetBranches(preset, settings, housingType)
+      : undefined;
+    const name = suggestUniqueSpaceName(
+      preset.rootName,
+      spaces.map((space) => space.name),
     );
+    createSpace.mutate({
+      name,
+      presetId: preset.id,
+      settings,
+      seedBranches,
+    });
   };
 
   const handleSkipPreset = () => {
     setOnboarded(true);
-    setShowPresetPicker(false);
+    closePresetPicker();
   };
 
   const startChildFolder = useCallback(
@@ -703,69 +767,107 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFiles }: MindMapCanvasP
     (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
   };
 
-  const resolveDropTarget = useCallback((): DropTarget | null => {
-    if (selectedNodeId) {
-      const selected = flat.find((n) => n.id === selectedNodeId);
-      if (selected?.type === 'FOLDER') {
-        return { kind: 'folder', nodeId: selected.id };
-      }
-    }
-    if (rootBranches.length > 0) {
-      return { kind: 'folder', nodeId: rootBranches[0].id };
-    }
-    return { kind: 'content', folderId: null };
-  }, [rootBranches, flat, selectedNodeId]);
+  const aiCanvasDropTarget = useMemo(
+    (): DropTarget => ({ kind: 'content', folderId: null }),
+    [],
+  );
 
-  const dropTargetLabel = useMemo(() => {
-    const target = resolveDropTarget();
-    if (!target) return t('common.archive');
-    if (target.kind === 'folder') {
-      return flat.find((n) => n.id === target.nodeId)?.name ?? t('common.folder');
-    }
-    return t('common.root');
-  }, [flat, resolveDropTarget]);
+  const hoveredFolderName = useMemo(() => {
+    if (!hoveredFolderDropId) return null;
+    return flat.find((n) => n.id === hoveredFolderDropId)?.name ?? null;
+  }, [flat, hoveredFolderDropId]);
+
+  const handleCanvasDragEnter = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
+    setFileDragActive(true);
+  }, []);
 
   const handleCanvasDragOver = useCallback((e: React.DragEvent) => {
     if (!e.dataTransfer.types.includes('Files')) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'copy';
     setCanvasDragOver(true);
+    setFileDragActive(true);
   }, []);
 
   const handleCanvasDragLeave = useCallback((e: React.DragEvent) => {
     if (e.currentTarget.contains(e.relatedTarget as Node)) return;
     setCanvasDragOver(false);
+    setFileDragActive(false);
+    setHoveredFolderDropId(null);
   }, []);
 
   const handleCanvasDrop = useCallback(
     async (e: React.DragEvent) => {
       e.preventDefault();
       setCanvasDragOver(false);
+      setFileDragActive(false);
+      setHoveredFolderDropId(null);
       const files = Array.from(e.dataTransfer.files);
       if (!files.length) return;
-
-      const target = resolveDropTarget();
-      if (!target) return;
 
       setUploading(true);
       setDropHint(null);
       try {
-        const mode = await handleFileDrop(files, target, onAiImportFiles, onUploadFiles);
-        if (mode === 'unsupported') {
-          setDropHint(AI_IMPORT_UNSUPPORTED_HINT);
+        const mode = await handleFileDrop(
+          files,
+          aiCanvasDropTarget,
+          onAiImportFiles,
+          onUploadFiles,
+        );
+        if (mode === 'unsupported' || mode === 'partial') {
+          setDropHint(
+            mode === 'partial' ? t('vault.aiImportPartialSkipped') : AI_IMPORT_UNSUPPORTED_HINT,
+          );
           window.setTimeout(() => setDropHint(null), 4000);
         }
       } finally {
         setUploading(false);
       }
     },
-    [onAiImportFiles, onUploadFiles, resolveDropTarget],
+    [aiCanvasDropTarget, onAiImportFiles, onUploadFiles],
+  );
+
+  const uploadFilesToFolder = useCallback(
+    async (files: File[], folderId: string) => {
+      if (!files.length) return;
+      setUploading(true);
+      setDropHint(null);
+      try {
+        if (onFolderUploadFiles) {
+          await onFolderUploadFiles(files, folderId);
+        } else {
+          await onUploadFiles(files, { kind: 'folder', nodeId: folderId });
+        }
+      } finally {
+        setUploading(false);
+      }
+    },
+    [onFolderUploadFiles, onUploadFiles],
+  );
+
+  const handleFolderFileDrop = useCallback(
+    (folderId: string, files: File[]) => {
+      setCanvasDragOver(false);
+      setFileDragActive(false);
+      setHoveredFolderDropId(null);
+      void uploadFilesToFolder(files, folderId);
+    },
+    [uploadFilesToFolder],
   );
 
   return (
     <>
       {showPresetPicker && (
-        <PresetPicker onSelect={handlePreset} onSkip={handleSkipPreset} />
+        <PresetPicker
+          mode={presetPickerMode}
+          onSelect={handlePreset}
+          onSkip={presetPickerMode === 'onboarding' ? handleSkipPreset : undefined}
+          onCancel={presetPickerMode === 'add' ? closePresetPicker : undefined}
+          onEmptySpace={
+            presetPickerMode === 'add' ? handleEmptySpaceFromPicker : undefined
+          }
+        />
       )}
 
       <NameDialog
@@ -807,6 +909,13 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFiles }: MindMapCanvasP
             setShowSpaceMap(false);
             handleAddSpace();
           }}
+          onDeleteSpace={async (spaceId) => {
+            await deleteSpace.mutateAsync(spaceId);
+            if (spaceId === activeSpaceId) {
+              selectNode(null);
+              setCanvas({ x: 0, y: 0, scale: 1 });
+            }
+          }}
           onClose={() => setShowSpaceMap(false)}
         />
       )}
@@ -836,6 +945,7 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFiles }: MindMapCanvasP
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerLeave={onPointerUp}
+          onDragEnter={handleCanvasDragEnter}
           onDragOver={handleCanvasDragOver}
           onDragLeave={handleCanvasDragLeave}
           onDrop={handleCanvasDrop}
@@ -905,32 +1015,80 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFiles }: MindMapCanvasP
                 onSelect={() => {
                   const doc = docByNode[node.id];
                   selectNode(id, doc?.id ?? null);
+                  setRightPanelOpen(true);
                 }}
                 onRename={(name) => handleCommitRename(id, name)}
                 onCancelRename={() => handleCancelRename(id)}
                 onStartRename={() => setRenamingNodeId(id)}
                 onDelete={() => requestDelete(id)}
-                onContextMenu={() => setContextMenu(id)}
+                onContextMenu={() =>
+                  setContextMenu((prev) => (prev === id ? null : id))
+                }
                 onCloseMenu={() => setContextMenu(null)}
                 onUpload={async (files) => {
                   if (isPendingNodeId(node.id) || docByNode[node.id]) return;
-                  const target = { kind: 'folder' as const, nodeId: node.id };
+                  if (node.type === 'FOLDER') {
+                    await uploadFilesToFolder(files, node.id);
+                    return;
+                  }
+                  const target: DropTarget = node.parentId
+                    ? { kind: 'folder', nodeId: node.parentId }
+                    : { kind: 'content', folderId: null };
                   setUploading(true);
                   setDropHint(null);
                   try {
                     const mode = await handleFileDrop(files, target, onAiImportFiles, onUploadFiles);
-                    if (mode === 'unsupported') {
-                      setDropHint(AI_IMPORT_UNSUPPORTED_HINT);
+                    if (mode === 'unsupported' || mode === 'partial') {
+                      setDropHint(
+                        mode === 'partial' ? t('vault.aiImportPartialSkipped') : AI_IMPORT_UNSUPPORTED_HINT,
+                      );
                       window.setTimeout(() => setDropHint(null), 4000);
                     }
                   } finally {
                     setUploading(false);
                   }
                 }}
+                fileDragActive={fileDragActive}
+                onFolderFileDrop={
+                  node.type === 'FOLDER' && !isPendingNodeId(id)
+                    ? (files) => handleFolderFileDrop(node.id, files)
+                    : undefined
+                }
+                onFolderDropHover={
+                  node.type === 'FOLDER' && !isPendingNodeId(id)
+                    ? (hovering) => {
+                        setHoveredFolderDropId((prev) => {
+                          if (hovering) return node.id;
+                          return prev === node.id ? null : prev;
+                        });
+                      }
+                    : undefined
+                }
                 onStartDrag={(clientX, clientY) => startNodeDrag(id, clientX, clientY)}
                 onAddChild={
                   node.type === 'FOLDER' && !isPendingNodeId(id)
                     ? () => startChildFolder(id)
+                    : undefined
+                }
+                onFolderUpload={
+                  node.type === 'FOLDER' && !isPendingNodeId(id) && onFolderUploadFiles
+                    ? () => {
+                        const input = document.createElement('input');
+                        input.type = 'file';
+                        input.multiple = true;
+                        input.onchange = async () => {
+                          const files = Array.from(input.files ?? []);
+                          if (!files.length) return;
+                          setUploading(true);
+                          setDropHint(null);
+                          try {
+                            await onFolderUploadFiles(files, node.id);
+                          } finally {
+                            setUploading(false);
+                          }
+                        };
+                        input.click();
+                      }
                     : undefined
                 }
               />
@@ -976,10 +1134,18 @@ export function MindMapCanvas({ onUploadFiles, onAiImportFiles }: MindMapCanvasP
             )}
           </div>
 
-          {canvasDragOver && (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[var(--color-accent)]/10 backdrop-blur-[1px]">
+          {canvasDragOver && !hoveredFolderDropId && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[var(--color-accent)]/10">
               <div className="rounded-2xl border border-[var(--color-accent)] bg-[var(--color-surface)] px-6 py-4 text-sm shadow-lg">
-                {t('vault.dropForAiImport', { target: dropTargetLabel })}
+                {t('vault.dropForAiAnalyze')}
+              </div>
+            </div>
+          )}
+
+          {canvasDragOver && hoveredFolderName && (
+            <div className="pointer-events-none absolute bottom-24 left-1/2 z-40 -translate-x-1/2">
+              <div className="rounded-2xl border border-[var(--color-accent)] bg-[var(--color-surface)] px-6 py-4 text-sm shadow-lg">
+                {t('vault.dropIntoFolder', { name: hoveredFolderName })}
               </div>
             </div>
           )}
@@ -1140,7 +1306,7 @@ function CanvasToolbar({
 
 interface MindMapNodeCardProps {
   node: TreeNode;
-  document?: { id: string; title: string; mimeType?: string | null };
+  document?: { id: string; title: string; mimeType?: string | null; aiStatus?: string | null };
   x: number;
   y: number;
   layoutWidth: number;
@@ -1159,6 +1325,10 @@ interface MindMapNodeCardProps {
   onUpload: (files: File[]) => void;
   onStartDrag: (clientX: number, clientY: number) => void;
   onAddChild?: () => void;
+  onFolderUpload?: () => void;
+  onFolderFileDrop?: (files: File[]) => void;
+  onFolderDropHover?: (hovering: boolean) => void;
+  fileDragActive?: boolean;
   defaultFolderName?: string;
 }
 
@@ -1183,6 +1353,10 @@ function MindMapNodeCard({
   onUpload,
   onStartDrag,
   onAddChild,
+  onFolderUpload,
+  onFolderFileDrop,
+  onFolderDropHover,
+  fileDragActive = false,
   defaultFolderName,
 }: MindMapNodeCardProps) {
   const isFolder = node.type === 'FOLDER';
@@ -1190,8 +1364,12 @@ function MindMapNodeCard({
   const isEditing = renaming || isPending;
   const [name, setName] = useState(node.name);
   const [dragOver, setDragOver] = useState(false);
+  const [folderDropOver, setFolderDropOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
   const committedRef = useRef(false);
+
+  useDismissOnPointerDown(showMenu, onCloseMenu, cardRef);
 
   useEffect(() => {
     setName(node.name);
@@ -1210,12 +1388,24 @@ function MindMapNodeCard({
 
   const placeholderName = defaultFolderName ?? t('vault.defaultFolderName');
   const nodeDims = readMindMapNodeDims();
+  const actionDims = readMindMapActionDims();
   const boxWidth = isEditing
     ? resolveMindMapNodeWidth(name || placeholderName, isFolder)
     : layoutWidth;
   const fileBorderColor = !isFolder
     ? getFileTypeBorderColor(document?.mimeType, document?.title ?? node.name)
     : null;
+  const folderAppearance = isFolder
+    ? resolveFolderAppearance(node.iconKey, node.color)
+    : null;
+  const aiPending = !isFolder && isAiEnrichmentPending(document?.aiStatus);
+  const { size: actionSize, iconSize: actionIconSize, gap: actionGap } = actionDims;
+  const folderDropSize = Math.round(actionSize * 1.45);
+  const folderDropIconSize = Math.round(actionIconSize * 1.2);
+  const menuIconSize = Math.max(16, Math.round(actionIconSize * 0.62));
+
+  const folderActionClass =
+    'pointer-events-auto flex items-center justify-center rounded-2xl border-2 border-[var(--color-accent)]/35 bg-[var(--color-surface)] text-[var(--color-accent)] shadow-[0_4px_14px_rgba(0,0,0,0.12)] ring-2 ring-[var(--color-accent)]/15 transition hover:scale-110 hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] hover:shadow-[0_6px_20px_rgba(0,0,0,0.16)] active:scale-95';
 
   const commitRename = () => {
     if (committedRef.current) return;
@@ -1225,6 +1415,7 @@ function MindMapNodeCard({
 
   return (
     <motion.div
+      ref={cardRef}
       data-mind-node
       layout={!isDragging}
       initial={{ opacity: 0, scale: 0.95 }}
@@ -1242,41 +1433,117 @@ function MindMapNodeCard({
       }}
       className={cn(
         'absolute group',
-        dragOver && 'drop-active',
+        !isFolder && dragOver && 'drop-active',
         isDragging && 'pointer-events-none shadow-xl ring-2 ring-[var(--color-accent)]/40',
         isDragTarget && 'ring-2 ring-[var(--color-accent)]/30',
       )}
-      onDragOver={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setDragOver(true);
-      }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setDragOver(false);
-        onUpload(Array.from(e.dataTransfer.files));
-      }}
+      onDragOver={
+        !isFolder
+          ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setDragOver(true);
+            }
+          : undefined
+      }
+      onDragLeave={!isFolder ? () => setDragOver(false) : undefined}
+      onDrop={
+        !isFolder
+          ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setDragOver(false);
+              onUpload(Array.from(e.dataTransfer.files));
+            }
+          : undefined
+      }
     >
-      {onAddChild && (
+      {onAddChild && isFolder && (
         <div
-          className="absolute top-1/2 left-full z-20 flex -translate-y-1/2 items-center opacity-0 transition-opacity duration-150 group-hover:opacity-100"
-          style={{ pointerEvents: 'none' }}
+          className="absolute top-1/2 left-full z-30 flex -translate-y-1/2 items-center opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+          style={{ pointerEvents: 'none', gap: actionGap, marginLeft: 4 }}
         >
-          <div className="h-px w-7 origin-left -rotate-[18deg] bg-[var(--color-border)]" />
+          <div
+            className="origin-left -rotate-[18deg] bg-[var(--color-accent)]/40"
+            style={{ width: Math.max(16, actionGap + 4), height: 2 }}
+          />
           <button
             type="button"
             title={t('common.newBranch')}
-            className="pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-accent)] shadow-md transition hover:scale-105 hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-soft)]"
+            style={{ width: actionSize, height: actionSize }}
+            className={folderActionClass}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
               onAddChild();
             }}
           >
-            <FolderPlus size={15} />
+            <FolderPlus size={actionIconSize} strokeWidth={2.25} />
           </button>
+          {onFolderUpload && (
+            <button
+              type="button"
+              title={t('vault.folderUploadFile')}
+              style={{ width: actionSize, height: actionSize }}
+              className={folderActionClass}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onFolderUpload();
+              }}
+            >
+              <Upload size={actionIconSize} strokeWidth={2.25} />
+            </button>
+          )}
+        </div>
+      )}
+
+      {onFolderFileDrop && isFolder && (
+        <div
+          data-folder-drop-zone
+          title={t('vault.folderDropZoneTitle')}
+          className={cn(
+            'absolute left-1/2 z-50 flex -translate-x-1/2 items-center justify-center rounded-full border-2 border-dashed bg-[var(--color-surface)] text-[var(--color-accent)] shadow-[0_6px_20px_rgba(0,0,0,0.16)] ring-2 ring-[var(--color-accent)]/20 transition-all duration-150',
+            fileDragActive || folderDropOver
+              ? 'pointer-events-auto scale-100 opacity-100'
+              : 'pointer-events-none scale-75 opacity-0',
+            folderDropOver
+              ? 'scale-110 border-solid border-[var(--color-accent)] bg-[var(--color-accent-soft)] shadow-[0_8px_24px_rgba(0,0,0,0.2)]'
+              : 'border-[var(--color-accent)]/50',
+          )}
+          style={{
+            top: nodeDims.height - folderDropSize / 5,
+            width: folderDropSize,
+            height: folderDropSize,
+          }}
+          onDragEnter={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setFolderDropOver(true);
+            onFolderDropHover?.(true);
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = 'copy';
+            setFolderDropOver(true);
+            onFolderDropHover?.(true);
+          }}
+          onDragLeave={(e) => {
+            if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+            setFolderDropOver(false);
+            onFolderDropHover?.(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setFolderDropOver(false);
+            onFolderDropHover?.(false);
+            const files = Array.from(e.dataTransfer.files);
+            if (files.length) onFolderFileDrop(files);
+          }}
+        >
+          <Upload size={folderDropIconSize} strokeWidth={2.25} />
         </div>
       )}
 
@@ -1284,7 +1551,7 @@ function MindMapNodeCard({
         className={cn(
           'relative flex h-full items-center rounded-2xl border shadow-sm transition',
           isFolder
-            ? 'border-[var(--color-border)] bg-[var(--color-surface)]'
+            ? folderAppearance?.theme.containerClassName
             : 'border-[var(--color-border)] bg-[var(--color-surface-2)]',
           !isFolder && fileBorderColor && 'border-[1.5px]',
           selected && 'border-[var(--color-accent)] ring-2 ring-[var(--color-accent)]/25',
@@ -1317,7 +1584,12 @@ function MindMapNodeCard({
           {isFolder ? (
             <div className="grid min-w-0 max-w-full place-items-center">
               <div className="flex min-w-0 max-w-full items-center gap-2">
-                <Folder size={32} className="shrink-0 text-[var(--color-accent)]" />
+                <FolderAppearance
+                  iconKey={node.iconKey}
+                  color={node.color}
+                  size={32}
+                  className="shrink-0"
+                />
                 {isEditing ? (
                   <div className="relative min-w-0 max-w-full">
                     {!name.trim() && (
@@ -1350,16 +1622,21 @@ function MindMapNodeCard({
                       onClick={(e) => e.stopPropagation()}
                     />
                   </div>
-                ) : (
-                  <button
-                    type="button"
-                    className="min-w-0 max-w-full truncate text-center font-medium"
-                    style={{ fontSize: 'var(--mind-map-node-font-size)', lineHeight: 1 }}
-                    onClick={onSelect}
-                  >
+              ) : (
+                <button
+                  type="button"
+                  className="flex min-w-0 max-w-full items-center justify-center gap-2 truncate text-center font-medium"
+                  style={{ fontSize: 'var(--mind-map-node-font-size)', lineHeight: 1 }}
+                  onClick={onSelect}
+                >
+                  {aiPending && (
+                    <Loader2 size={actionIconSize} className="shrink-0 animate-spin text-[var(--color-accent)]" />
+                  )}
+                  <span className={cn('min-w-0 truncate', aiPending && 'text-[var(--color-muted)]')}>
                     {node.name}
-                  </button>
-                )}
+                  </span>
+                </button>
+              )}
               </div>
             </div>
           ) : (
@@ -1404,11 +1681,16 @@ function MindMapNodeCard({
               ) : (
                 <button
                   type="button"
-                  className="min-w-0 flex-1 truncate text-left font-medium"
+                  className="flex min-w-0 flex-1 items-center gap-2 truncate text-left font-medium"
                   style={{ fontSize: 'var(--mind-map-node-font-size)', lineHeight: 1 }}
                   onClick={onSelect}
                 >
-                  {node.name}
+                  {aiPending && (
+                    <Loader2 size={actionIconSize} className="shrink-0 animate-spin text-[var(--color-accent)]" />
+                  )}
+                  <span className={cn('min-w-0 truncate', aiPending && 'text-[var(--color-muted)]')}>
+                    {node.name}
+                  </span>
                 </button>
               )}
             </>
@@ -1420,31 +1702,35 @@ function MindMapNodeCard({
             type="button"
             className={cn(
               'shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-[var(--color-surface-2)]',
+              showMenu && 'bg-[var(--color-surface-2)] opacity-100',
               isFolder
                 ? 'absolute top-1/2 right-[var(--mind-map-node-padding)] -translate-y-1/2'
                 : '-mr-0.5',
             )}
-            onClick={onContextMenu}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onContextMenu();
+            }}
           >
-            <MoreHorizontal size={14} />
+            <MoreHorizontal size={menuIconSize} />
           </button>
         )}
       </div>
 
       {showMenu && !isEditing && (
-        <div className="absolute left-0 top-full z-30 mt-1 min-w-[150px] rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-xl">
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-2)]"
+        <ContextMenuPanel variant="node">
+          <ContextMenuItem
+            variant="node"
             onClick={() => {
               onStartRename();
               onCloseMenu();
             }}
           >
-            <Pencil size={14} /> {t('common.rename')}
-          </button>
-          <label className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--color-surface-2)]">
-            <Upload size={14} /> {t('common.uploadFile')}
+            <Pencil size={menuIconSize} /> {t('common.rename')}
+          </ContextMenuItem>
+          <ContextMenuItem as="label" variant="node">
+            <Upload size={menuIconSize} /> {t('common.uploadFile')}
             <input
               type="file"
               multiple
@@ -1454,18 +1740,18 @@ function MindMapNodeCard({
                 onCloseMenu();
               }}
             />
-          </label>
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-500 hover:bg-red-500/10"
+          </ContextMenuItem>
+          <ContextMenuItem
+            variant="node"
+            danger
             onClick={() => {
               onDelete();
               onCloseMenu();
             }}
           >
-            <Trash2 size={14} /> {t('common.delete')}
-          </button>
-        </div>
+            <Trash2 size={menuIconSize} /> {t('common.delete')}
+          </ContextMenuItem>
+        </ContextMenuPanel>
       )}
     </motion.div>
   );

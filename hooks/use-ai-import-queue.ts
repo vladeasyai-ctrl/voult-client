@@ -53,6 +53,7 @@ function hasEdits(
 export function useAiImportQueue() {
   const { invalidate } = useVaultMutations();
   const selectNode = useVaultStore((s) => s.selectNode);
+  const upsertDocument = useVaultStore((s) => s.upsertDocument);
   const setRightPanelOpen = useVaultStore((s) => s.setRightPanelOpen);
   const activeSpaceId = useVaultStore((s) => s.activeSpaceId);
 
@@ -62,6 +63,8 @@ export function useAiImportQueue() {
 
   const unsubscribers = useRef<Map<string, () => void>>(new Map());
   const timerIntervals = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
 
   const updateItem = useCallback((clientId: string, patch: Partial<ImportQueueItem>) => {
     setItems((prev) =>
@@ -106,6 +109,57 @@ export function useAiImportQueue() {
     [updateItem],
   );
 
+  const subscribeToImport = useCallback(
+    (clientId: string, importId: string, initialPhase: ImportPhase = 'storing') => {
+      updateItem(clientId, { importId, phase: initialPhase, uploadProgress: 100 });
+
+      const unsubscribe = subscribeImportEvents(
+        importId,
+        (event) => {
+          setItems((prev) =>
+            prev.map((item) => {
+              if (item.clientId !== clientId) return item;
+              const phase = mapEventToPhase(event.type, item.phase);
+              return {
+                ...item,
+                phase,
+                session: event.session,
+                document: event.document ?? item.document,
+                error: event.type === 'FAILED' ? event.message ?? t('vault.aiAnalysisError') : null,
+              };
+            }),
+          );
+
+          if (event.type === 'PROPOSAL_READY') {
+            if (event.document) {
+              upsertDocument(event.document);
+              selectNode(event.document.nodeId, event.document.id);
+              setRightPanelOpen(true);
+            }
+            void invalidate();
+            startAutoDismissTimer(clientId);
+          }
+        },
+        () => {
+          void api.getImport(importId).then((current) => {
+            if (current.status === 'PROPOSAL_READY') {
+              updateItem(clientId, { phase: 'ready', session: current });
+              startAutoDismissTimer(clientId);
+            } else if (current.status === 'FAILED') {
+              updateItem(clientId, {
+                phase: 'failed',
+                session: current,
+                error: current.errorMessage ?? t('vault.aiAnalysisError'),
+              });
+            }
+          }).catch(() => {});
+        },
+      );
+      unsubscribers.current.set(clientId, unsubscribe);
+    },
+    [invalidate, selectNode, setRightPanelOpen, startAutoDismissTimer, updateItem, upsertDocument],
+  );
+
   const beginImport = useCallback(
     async (clientId: string, file: File, dropTarget: DropTarget | null) => {
       try {
@@ -122,47 +176,7 @@ export function useAiImportQueue() {
           uploadProgress: 100,
         });
 
-        const unsubscribe = subscribeImportEvents(
-          session.id,
-          (event) => {
-            setItems((prev) =>
-              prev.map((item) => {
-                if (item.clientId !== clientId) return item;
-                const phase = mapEventToPhase(event.type, item.phase);
-                return {
-                  ...item,
-                  phase,
-                  session: event.session,
-                  document: event.document ?? item.document,
-                  error: event.type === 'FAILED' ? event.message ?? t('vault.aiAnalysisError') : null,
-                };
-              }),
-            );
-
-            if (event.type === 'PROPOSAL_READY') {
-              void invalidate();
-              if (event.document) {
-                selectNode(event.document.nodeId, event.document.id);
-              }
-              startAutoDismissTimer(clientId);
-            }
-          },
-          () => {
-            void api.getImport(session.id).then((current) => {
-              if (current.status === 'PROPOSAL_READY') {
-                updateItem(clientId, { phase: 'ready', session: current });
-                startAutoDismissTimer(clientId);
-              } else if (current.status === 'FAILED') {
-                updateItem(clientId, {
-                  phase: 'failed',
-                  session: current,
-                  error: current.errorMessage ?? t('vault.aiAnalysisError'),
-                });
-              }
-            }).catch(() => {});
-          },
-        );
-        unsubscribers.current.set(clientId, unsubscribe);
+        subscribeToImport(clientId, session.id, 'storing');
       } catch (error) {
         updateItem(clientId, {
           phase: 'failed',
@@ -170,47 +184,91 @@ export function useAiImportQueue() {
         });
       }
     },
-    [activeSpaceId, invalidate, selectNode, startAutoDismissTimer, updateItem],
+    [activeSpaceId, subscribeToImport, updateItem],
+  );
+
+  const enqueueImportSession = useCallback(
+    (importId: string, dropTarget: DropTarget | null) => {
+      setQueueError(null);
+
+      const prev = itemsRef.current;
+      if (prev.length >= MAX_QUEUE) {
+        setQueueError(t('vault.aiImportQueueFull', { max: MAX_QUEUE }));
+        return;
+      }
+
+      const clientId = crypto.randomUUID();
+      const item: ImportQueueItem = {
+        clientId,
+        importId,
+        file: new File([], 'remote-upload'),
+        dropTarget,
+        phase: 'storing',
+        uploadProgress: 100,
+        session: null,
+        document: null,
+        error: null,
+        timerSeconds: null,
+      };
+
+      setItems([...prev, item]);
+
+      void api.getImport(importId).then((session) => {
+        updateItem(clientId, { session, phase: session.status === 'PROPOSAL_READY' ? 'ready' : 'storing' });
+        if (session.status === 'PROPOSAL_READY') {
+          startAutoDismissTimer(clientId);
+          void invalidate();
+        } else {
+          subscribeToImport(clientId, importId, 'storing');
+        }
+      }).catch(() => {
+        updateItem(clientId, {
+          phase: 'failed',
+          error: t('vault.aiAnalysisError'),
+        });
+      });
+    },
+    [invalidate, startAutoDismissTimer, subscribeToImport, updateItem],
   );
 
   const enqueueFiles = useCallback(
     (files: File[], dropTarget: DropTarget | null) => {
       setQueueError(null);
-      setItems((prev) => {
-        const available = MAX_QUEUE - prev.length;
-        if (available <= 0) {
-          setQueueError(t('vault.aiImportQueueFull', { max: MAX_QUEUE }));
-          return prev;
-        }
 
-        const toImport = files.slice(0, available);
-        if (files.length > available) {
-          setQueueError(t('vault.aiImportQueuePartial', {
-            added: toImport.length,
-            skipped: files.length - available,
-            max: MAX_QUEUE,
-          }));
-        }
+      const prev = itemsRef.current;
+      const available = MAX_QUEUE - prev.length;
+      if (available <= 0) {
+        setQueueError(t('vault.aiImportQueueFull', { max: MAX_QUEUE }));
+        return;
+      }
 
-        const newItems: ImportQueueItem[] = toImport.map((file) => ({
-          clientId: crypto.randomUUID(),
-          importId: null,
-          file,
-          dropTarget,
-          phase: 'uploading' as const,
-          uploadProgress: 0,
-          session: null,
-          document: null,
-          error: null,
-          timerSeconds: null,
+      const toImport = files.slice(0, available);
+      if (files.length > available) {
+        setQueueError(t('vault.aiImportQueuePartial', {
+          added: toImport.length,
+          skipped: files.length - available,
+          max: MAX_QUEUE,
         }));
+      }
 
-        for (const item of newItems) {
-          void beginImport(item.clientId, item.file, item.dropTarget);
-        }
+      const newItems: ImportQueueItem[] = toImport.map((file) => ({
+        clientId: crypto.randomUUID(),
+        importId: null,
+        file,
+        dropTarget,
+        phase: 'uploading' as const,
+        uploadProgress: 0,
+        session: null,
+        document: null,
+        error: null,
+        timerSeconds: null,
+      }));
 
-        return [...prev, ...newItems];
-      });
+      setItems([...prev, ...newItems]);
+
+      for (const item of newItems) {
+        void beginImport(item.clientId, item.file, item.dropTarget);
+      }
     },
     [beginImport],
   );
@@ -265,7 +323,13 @@ export function useAiImportQueue() {
             ...payload,
             spaceId: activeSpaceId,
           });
+          upsertDocument(doc);
           selectNode(doc.nodeId, doc.id);
+          setRightPanelOpen(true);
+          await invalidate();
+        } else if (item.document) {
+          upsertDocument(item.document);
+          selectNode(item.document.nodeId, item.document.id);
           setRightPanelOpen(true);
           await invalidate();
         }
@@ -284,7 +348,7 @@ export function useAiImportQueue() {
         });
       }
     },
-    [activeSpaceId, invalidate, items, removeItem, selectNode, setRightPanelOpen, updateItem],
+    [activeSpaceId, invalidate, items, removeItem, selectNode, setRightPanelOpen, updateItem, upsertDocument],
   );
 
   useEffect(() => {
@@ -301,6 +365,7 @@ export function useAiImportQueue() {
     queueError,
     busyIds,
     enqueueFiles,
+    enqueueImportSession,
     dismissItem,
     rejectItem,
     confirmItem,

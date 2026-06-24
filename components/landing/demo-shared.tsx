@@ -3,8 +3,32 @@
 import { motion } from 'framer-motion';
 import { FileTypeIcon } from '@/components/ui/file-type-icon';
 import { cn } from '@/lib/cn';
-import { DEMO_FOLDER_THEMES, type DemoFolderKind } from '@/lib/demo-node-theme';
+import { resolveDemoFolderAppearance, type DemoFolderKind } from '@/lib/demo-node-theme';
 import { getFileTypeBorderColor } from '@/lib/file-type';
+
+export function DemoFileChip({
+  filename,
+  compact,
+  className,
+}: {
+  filename: string;
+  compact?: boolean;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-2 rounded-xl border bg-[var(--color-surface)] shadow-xl ring-2 ring-[var(--color-accent)]/25',
+        compact ? 'px-2 py-1.5 text-[10px]' : 'px-3 py-2 text-sm sm:px-4 sm:py-2.5',
+        className,
+      )}
+      style={{ borderColor: getFileTypeBorderColor(null, filename) }}
+    >
+      <FileTypeIcon filename={filename} size={compact ? 14 : 18} />
+      <span className={cn('font-medium', compact ? 'max-w-[88px] truncate' : '')}>{filename}</span>
+    </div>
+  );
+}
 
 export function DemoNode({
   label,
@@ -37,8 +61,8 @@ export function DemoNode({
   searchHit?: boolean;
   nodeId?: string;
 }) {
-  const folderTheme = DEMO_FOLDER_THEMES[folderKind];
-  const FolderIcon = folderTheme.icon;
+  const folderTheme = resolveDemoFolderAppearance(folderKind);
+  const FolderIcon = folderTheme.Icon;
   const fileBorderColor = doc && filename ? getFileTypeBorderColor(null, filename) : null;
 
   return (
@@ -67,7 +91,7 @@ export function DemoNode({
                     ? 'border-[var(--color-accent)]/50 bg-[var(--color-accent-soft)]/60'
                     : accent
                       ? 'border-[var(--color-accent)] bg-[var(--color-accent-soft)]'
-                      : folderTheme.className,
+                      : folderTheme.theme.containerClassName,
       )}
     >
       {doc && filename ? (
@@ -81,7 +105,7 @@ export function DemoNode({
               ? searchHit
                 ? 'text-amber-600 dark:text-amber-400'
                 : 'text-[var(--color-accent)]'
-              : folderTheme.iconClassName,
+              : folderTheme.theme.iconClassName,
           )}
         />
       )}

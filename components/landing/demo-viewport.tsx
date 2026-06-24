@@ -28,26 +28,51 @@ function resolveBounds(
   target: DemoFocusTarget,
   presetId: string,
 ): DemoRect | null {
+  const boundsRoot =
+    presetId === 'work' ? (content.querySelector<HTMLElement>('[data-demo-scene]') ?? content) : content;
+
   if (target.mode === 'all') {
     if (presetId === 'home') {
       return homeLayoutBounds(target, false);
     }
-    return measureNodeBounds(content, getStableOverviewTarget(presetId));
+    return measureNodeBounds(boundsRoot, getStableOverviewTarget(presetId));
   }
 
-  const bounds = measureNodeBounds(content, target);
+  const bounds = measureNodeBounds(boundsRoot, target);
   if (!bounds && presetId === 'home') {
     return homeLayoutBounds(target, true);
   }
   return bounds;
 }
 
-function stableContentSize(presetId: string, measured: { width: number; height: number }) {
+function stableContentSize(
+  presetId: string,
+  content: HTMLElement,
+  measured: { width: number; height: number },
+) {
   if (presetId === 'home') {
     return { width: HOME_CANVAS_W, height: HOME_CANVAS_H };
   }
-  return measured;
+
+  const scene = content.querySelector<HTMLElement>('[data-demo-scene]');
+  if (!scene) return measured;
+
+  const sceneRect = scene.getBoundingClientRect();
+  const contentRect = content.getBoundingClientRect();
+  return {
+    width: measured.width,
+    height: measured.height,
+    offsetX: sceneRect.left - contentRect.left,
+    offsetY: sceneRect.top - contentRect.top,
+  };
 }
+
+type ContentMetrics = {
+  width: number;
+  height: number;
+  offsetX?: number;
+  offsetY?: number;
+};
 
 function latchKey(presetId: string, target: DemoFocusTarget): string {
   return `${presetId}:${focusTargetKey(target)}`;
@@ -59,7 +84,8 @@ export function DemoViewport({ target, presetId, children }: DemoViewportProps) 
   const [focus, setFocus] = useState<DemoViewportFocus>(DEFAULT_FOCUS);
   const latchedBoundsRef = useRef<DemoRect | null>(null);
   const latchedScaleRef = useRef<number | null>(null);
-  const latchedContentSizeRef = useRef<{ width: number; height: number } | null>(null);
+  const latchedContentSizeRef = useRef<ContentMetrics | null>(null);
+  const latchedTransformRef = useRef<DemoViewportFocus | null>(null);
   const latchedKeyRef = useRef<string | null>(null);
 
   const remeasure = useCallback(() => {
@@ -79,12 +105,42 @@ export function DemoViewport({ target, presetId, children }: DemoViewportProps) 
     if (viewportSize.width < 1 || measuredContentSize.width < 1) return;
 
     const key = latchKey(presetId, target);
+
+    // Focused view: latch scale + pan once; ignore resize and panel open/close.
+    if (target.mode === 'nodes') {
+      if (latchedKeyRef.current === key && latchedTransformRef.current) {
+        setFocus(latchedTransformRef.current);
+        return;
+      }
+
+      const bounds = resolveBounds(content, target, presetId);
+      if (!bounds) return;
+
+      const contentSize = stableContentSize(presetId, content, measuredContentSize);
+      const next = computeViewportTransform(
+        bounds,
+        contentSize,
+        viewportSize,
+        focusPadding(target),
+      );
+
+      latchedKeyRef.current = key;
+      latchedBoundsRef.current = bounds;
+      latchedContentSizeRef.current = contentSize;
+      latchedScaleRef.current = next.scale;
+      latchedTransformRef.current = next;
+      setFocus(next);
+      return;
+    }
+
+    latchedTransformRef.current = null;
+
     let bounds = resolveBounds(content, target, presetId);
     if (!bounds) return;
 
     if (latchedKeyRef.current !== key || latchedBoundsRef.current == null || latchedScaleRef.current == null) {
       latchedBoundsRef.current = bounds;
-      latchedContentSizeRef.current = stableContentSize(presetId, measuredContentSize);
+      latchedContentSizeRef.current = stableContentSize(presetId, content, measuredContentSize);
       latchedScaleRef.current = computeViewportTransform(
         bounds,
         latchedContentSizeRef.current,
@@ -96,7 +152,7 @@ export function DemoViewport({ target, presetId, children }: DemoViewportProps) 
       bounds = latchedBoundsRef.current;
     }
 
-    const contentSize = latchedContentSizeRef.current ?? measuredContentSize;
+    const contentSize: ContentMetrics = latchedContentSizeRef.current ?? measuredContentSize;
     const padding = focusPadding(target);
     const next = computeViewportTransform(
       bounds,

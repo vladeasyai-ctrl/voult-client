@@ -65,6 +65,18 @@ export function renameNodeInTree(
   }));
 }
 
+export function updateNodeInTree(
+  nodes: TreeNode[],
+  nodeId: string,
+  patch: Partial<Pick<TreeNode, 'name' | 'iconKey' | 'color' | 'description'>>,
+): TreeNode[] {
+  return nodes.map((n) => ({
+    ...n,
+    ...(n.id === nodeId ? patch : {}),
+    children: updateNodeInTree(n.children, nodeId, patch),
+  }));
+}
+
 export function replaceNodeIdInTree(
   nodes: TreeNode[],
   tempId: string,
@@ -106,6 +118,9 @@ export function createPendingFolder(spaceId: string, parentId: string | null): T
     parentId,
     name: '',
     type: 'FOLDER',
+    iconKey: 'folder',
+    color: 'default',
+    description: null,
     createdAt: now,
     updatedAt: now,
     children: [],

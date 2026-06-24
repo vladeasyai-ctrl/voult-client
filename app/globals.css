@@ -19,6 +19,9 @@
   --mind-map-node-height: 60;
   --mind-map-node-font-size: 1.75rem;
   --mind-map-node-padding: 14px;
+  --mind-map-action-size: 56;
+  --mind-map-action-icon-size: 26;
+  --mind-map-action-gap: 10;
 }
 
 .dark {

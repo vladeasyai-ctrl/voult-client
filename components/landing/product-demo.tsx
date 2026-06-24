@@ -3,8 +3,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FileTypeIcon } from '@/components/ui/file-type-icon';
-import { getFileTypeBorderColor } from '@/lib/file-type';
 import { cn } from '@/lib/cn';
 import {
   DEMO_PRESETS,
@@ -19,6 +17,7 @@ import { DemoRadialScene } from './demo-radial-scene';
 import { DemoTreeScene } from './demo-tree-scene';
 import { DemoViewport } from './demo-viewport';
 import { Meta, PdfPreviewMock } from './demo-shared';
+import { DemoDragDropUpload } from './demo-drag-drop';
 import { getDemoFocusTarget } from '@/lib/demo-focus';
 
 const PHASE_LABELS: Partial<Record<DemoPhase, string>> = {
@@ -51,6 +50,7 @@ export function ProductDemo({ fullWidth = false }: ProductDemoProps) {
   const [presetId, setPresetId] = useState(DEMO_PRESETS[0].id);
   const [stepIndex, setStepIndex] = useState(0);
   const [autoPlay, setAutoPlay] = useState(true);
+  const [workFocusReady, setWorkFocusReady] = useState(false);
   const preset = useMemo(() => getDemoPreset(presetId), [presetId]);
   const phase = preset.sequence[stepIndex];
   const caption = getStepCaption(phase, preset.sequence, stepIndex);
@@ -91,12 +91,33 @@ export function ProductDemo({ fullWidth = false }: ProductDemoProps) {
   const showFloatingFile = phase === 'drop' || phase === 'analyze';
   const highlightPath = phase === 'route' || phase === 'placed' || phase === 'preview' || phase === 'hold';
   const showNewDoc = isDocPlaced(preset.sequence, stepIndex);
-  const showPreviewPanel = phase === 'preview' || phase === 'search';
+  const showPreviewPanel =
+    phase === 'preview' ||
+    phase === 'search' ||
+    (presetId === 'work' && phase === 'hold');
   const searchActive = phase === 'search';
 
+  useEffect(() => {
+    if (presetId !== 'work' || !showNewDoc) {
+      setWorkFocusReady(false);
+      return;
+    }
+    if (phase === 'preview') {
+      const id = window.setTimeout(() => setWorkFocusReady(true), 500);
+      return () => window.clearTimeout(id);
+    }
+    if (phase === 'search' || phase === 'hold') {
+      setWorkFocusReady(true);
+      return;
+    }
+    setWorkFocusReady(false);
+  }, [presetId, phase, showNewDoc]);
+
+  const applyFocusZoom = showNewDoc && (presetId !== 'work' || workFocusReady);
+
   const focusTarget = useMemo(
-    () => getDemoFocusTarget(presetId, { showNewDoc }),
-    [presetId, showNewDoc],
+    () => getDemoFocusTarget(presetId, { showNewDoc: applyFocusZoom }),
+    [presetId, applyFocusZoom],
   );
 
   const displayPhase = phase === 'hold' ? preset.sequence[preset.sequence.length - 2] : phase;
@@ -187,6 +208,7 @@ export function ProductDemo({ fullWidth = false }: ProductDemoProps) {
                     showNewDoc={showNewDoc}
                     showPreviewPanel={showPreviewPanel}
                     searchActive={searchActive}
+                    uploadFileName={preset.upload.fileName}
                   />
                 ) : (
                   <DemoRadialScene
@@ -194,6 +216,7 @@ export function ProductDemo({ fullWidth = false }: ProductDemoProps) {
                     highlightPath={highlightPath}
                     showNewDoc={showNewDoc}
                     searchActive={searchActive}
+                    uploadFileName={preset.upload.fileName}
                   />
                 )}
               </DemoViewport>
@@ -214,19 +237,15 @@ export function ProductDemo({ fullWidth = false }: ProductDemoProps) {
               <AnimatePresence>
                 {showFloatingFile && (
                   <motion.div
-                    key="floating-file"
-                    initial={{ opacity: 0, y: -50, scale: 0.75 }}
-                    animate={{ opacity: 1, y: phase === 'analyze' ? 8 : 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 30, scale: 0.85 }}
-                    className="absolute left-1/2 top-[18%] z-20 -translate-x-1/2"
+                    key="drag-drop-upload"
+                    className="absolute inset-0 z-20"
+                    exit={{ opacity: 0, scale: 0.55, y: 36 }}
+                    transition={{ duration: 0.35, ease: 'easeIn' }}
                   >
-                    <div
-                      className="flex items-center gap-2 rounded-xl border bg-[var(--color-surface)] px-3 py-2 shadow-xl ring-2 ring-[var(--color-accent)]/20 sm:px-4 sm:py-2.5"
-                      style={{ borderColor: getFileTypeBorderColor(null, preset.upload.fileName) }}
-                    >
-                      <FileTypeIcon filename={preset.upload.fileName} size={18} />
-                      <span className="text-sm font-medium">{preset.upload.fileName}</span>
-                    </div>
+                    <DemoDragDropUpload
+                      fileName={preset.upload.fileName}
+                      phase={phase === 'analyze' ? 'analyze' : 'drop'}
+                    />
                   </motion.div>
                 )}
               </AnimatePresence>

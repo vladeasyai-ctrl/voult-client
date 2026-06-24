@@ -1,9 +1,11 @@
 'use client';
 
 import { AnimatePresence, motion } from 'framer-motion';
+import { useRef } from 'react';
 import { t } from '@/lib/i18n';
 import type { DemoPhase } from '@/lib/demo-presets';
 import { Connector, DemoNode } from './demo-shared';
+import { DemoTreeUploadFlight, useDemoDocLanding } from './demo-upload-flight';
 
 interface DemoTreeSceneProps {
   phase: DemoPhase;
@@ -11,6 +13,7 @@ interface DemoTreeSceneProps {
   showNewDoc: boolean;
   showPreviewPanel: boolean;
   searchActive: boolean;
+  uploadFileName: string;
 }
 
 export function DemoTreeScene({
@@ -19,7 +22,13 @@ export function DemoTreeScene({
   showNewDoc,
   showPreviewPanel,
   searchActive,
+  uploadFileName,
 }: DemoTreeSceneProps) {
+  const sceneRef = useRef<HTMLDivElement>(null);
+  const folderRef = useRef<HTMLDivElement>(null);
+  const slotRef = useRef<HTMLDivElement>(null);
+  const { docVisible, onDocLanded } = useDemoDocLanding(showNewDoc, phase, 'work');
+  const flightActive = phase === 'route' || (phase === 'placed' && !docVisible);
   const dimAnalyze = phase === 'analyze';
   const pulseRoute = phase === 'route';
   const pathLit =
@@ -27,7 +36,7 @@ export function DemoTreeScene({
     (phase === 'route' || phase === 'placed' || phase === 'preview' || phase === 'hold');
 
   return (
-    <div className="py-2">
+    <div ref={sceneRef} data-demo-scene className="relative py-2">
       <div className="flex items-start gap-3 sm:gap-4">
         <DemoNode
           nodeId="work"
@@ -83,39 +92,47 @@ export function DemoTreeScene({
                     />
                   </div>
                   <div className="flex items-start gap-2 sm:gap-2.5">
-                    <DemoNode
-                      nodeId="websiteProject"
-                      label={t('demo.websiteProject')}
-                      folderKind="project"
-                      highlighted={pathLit}
-                      pulse={pulseRoute}
-                      target={highlightPath}
-                      compact
-                    />
+                    <div ref={folderRef} className="inline-flex">
+                      <DemoNode
+                        nodeId="websiteProject"
+                        label={t('demo.websiteProject')}
+                        folderKind="project"
+                        highlighted={pathLit}
+                        pulse={pulseRoute}
+                        target={highlightPath}
+                        compact
+                      />
+                    </div>
                     <Connector short />
                     <div className="flex flex-col gap-2">
                       <DemoNode nodeId="mockups" label={t('demo.mockups')} doc filename="Mockups.fig" compact />
                       <DemoNode nodeId="spec" label={t('demo.spec')} doc filename="Spec.pdf" compact />
-                      <AnimatePresence>
-                        {showNewDoc && (
-                          <motion.div
-                            initial={{ opacity: 0, x: -8, scale: 0.85 }}
-                            animate={{ opacity: 1, x: 0, scale: 1 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ type: 'spring', stiffness: 280, damping: 22 }}
-                          >
-                            <DemoNode
-                              nodeId="amendment"
-                              label={t('demo.amendment')}
-                              doc
-                              filename="Amendment.pdf"
-                              newDoc
-                              selected={showPreviewPanel}
-                              compact
-                            />
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
+                      <div
+                        ref={slotRef}
+                        data-demo-node="amendmentSlot"
+                        className="min-h-[26px] sm:min-h-[28px]"
+                      >
+                        <AnimatePresence>
+                          {docVisible && (
+                            <motion.div
+                              initial={{ opacity: 0, scale: 0.82 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0 }}
+                              transition={{ type: 'spring', stiffness: 420, damping: 26 }}
+                            >
+                              <DemoNode
+                                nodeId="amendment"
+                                label={t('demo.amendment')}
+                                doc
+                                filename="Amendment.pdf"
+                                newDoc
+                                selected={showPreviewPanel}
+                                compact
+                              />
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -171,6 +188,17 @@ export function DemoTreeScene({
           </div>
         </div>
       </div>
+
+      {flightActive && (
+        <DemoTreeUploadFlight
+          phase={phase === 'route' ? 'route' : 'placed'}
+          fileName={uploadFileName}
+          containerRef={sceneRef}
+          folderRef={folderRef}
+          slotRef={slotRef}
+          onLanded={onDocLanded}
+        />
+      )}
     </div>
   );
 }

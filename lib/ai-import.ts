@@ -1,12 +1,12 @@
 import { t } from '@/lib/i18n';
+import {
+  isVaultImportFile,
+  VAULT_IMPORT_ACCEPT,
+} from '@/lib/vault-import-files';
 
-/** Files supported by AI import (backend OpenAiDocumentAiAnalyzer). */
-export function isAiImportFile(file: File): boolean {
-  if (file.type.startsWith('image/')) return true;
-  if (file.type === 'application/pdf') return true;
-  return file.name.toLowerCase().endsWith('.pdf');
-}
+/** @deprecated Use isVaultImportFile */
+export const isAiImportFile = isVaultImportFile;
 
-export const AI_IMPORT_ACCEPT = 'image/*,application/pdf,.pdf';
+export const AI_IMPORT_ACCEPT = VAULT_IMPORT_ACCEPT;
 
 export const AI_IMPORT_UNSUPPORTED_HINT = t('vault.aiImportSupported');

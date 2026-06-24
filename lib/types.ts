@@ -16,6 +16,9 @@ export interface TreeNode {
   parentId: string | null;
   name: string;
   type: NodeType;
+  iconKey: string | null;
+  color: string | null;
+  description: string | null;
   createdAt: string;
   updatedAt: string;
   children: TreeNode[];
@@ -28,10 +31,13 @@ export interface Document {
   title: string;
   description: string | null;
   aiSummary: string | null;
+  aiStatus: AiStatus | null;
   mimeType: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+export type AiStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
 export type ImportStatus =
   | 'UPLOADED'
@@ -61,6 +67,21 @@ export interface ImportSession {
   errorMessage: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type RemoteUploadStatus = 'ACTIVE' | 'EXPIRED' | 'CLOSED';
+export type RemoteUploadMode = 'DIRECT' | 'AI_IMPORT';
+
+export interface RemoteUploadSession {
+  id: string;
+  token: string;
+  parentId: string | null;
+  spaceId: string | null;
+  mode: RemoteUploadMode;
+  expiresAt: string;
+  status: RemoteUploadStatus;
+  uploadCount: number;
+  createdAt: string;
 }
 
 export type ImportPhase = 'uploading' | 'storing' | 'analyzing' | 'ready' | 'failed';
@@ -95,6 +116,7 @@ export interface AuthResponse {
 
 export interface DownloadUrlResponse {
   url: string;
+  attachmentUrl: string;
   expiresInSeconds: number;
 }
 

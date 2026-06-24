@@ -5,6 +5,7 @@ import { t } from '@/lib/i18n';
 import { HOME_CANVAS_H, HOME_CANVAS_W, HOME_LAYOUT } from '@/lib/demo-home-layout';
 import type { DemoPhase } from '@/lib/demo-presets';
 import { DemoNode } from './demo-shared';
+import { DemoRadialUploadFlight, useDemoDocLanding } from './demo-upload-flight';
 
 const EDGES: [string, string][] = [
   ['home', 'documents'],
@@ -30,6 +31,7 @@ interface DemoRadialSceneProps {
   highlightPath: boolean;
   showNewDoc: boolean;
   searchActive: boolean;
+  uploadFileName: string;
 }
 
 export function DemoRadialScene({
@@ -37,6 +39,7 @@ export function DemoRadialScene({
   highlightPath,
   showNewDoc,
   searchActive,
+  uploadFileName,
 }: DemoRadialSceneProps) {
   const nodeMap = new Map(HOME_LAYOUT.map((n) => [n.id, n]));
 
@@ -50,6 +53,8 @@ export function DemoRadialScene({
 
   const pulseRoute = phase === 'route';
   const dimOthers = phase === 'analyze' || highlightPath || searchActive;
+  const { docVisible, onDocLanded } = useDemoDocLanding(showNewDoc, phase, 'home');
+  const flightActive = phase === 'route' || (phase === 'placed' && !docVisible);
 
   function nodeProps(id: string) {
     const highlighted = highlightIds.has(id);
@@ -119,16 +124,27 @@ export function DemoRadialScene({
       })}
 
       <AnimatePresence>
-        {showNewDoc && (
+        {flightActive && (
+          <DemoRadialUploadFlight
+            phase={phase === 'route' ? 'route' : 'placed'}
+            fileName={uploadFileName}
+            onLanded={onDocLanded}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {docVisible && (
           <motion.div
             className="absolute -translate-x-1/2 -translate-y-1/2"
             style={{
               left: `${(nodeMap.get('waterMar')!.x / HOME_CANVAS_W) * 100}%`,
               top: `${(nodeMap.get('waterMar')!.y / HOME_CANVAS_H) * 100}%`,
             }}
-            initial={{ opacity: 0, scale: 0.8 }}
+            initial={{ opacity: 0, scale: 0.82 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 420, damping: 26 }}
           >
             <DemoNode
               label={t('demo.waterMar')}

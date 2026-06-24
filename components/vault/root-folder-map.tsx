@@ -1,11 +1,12 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Folder, Plus, X } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { t } from '@/lib/i18n';
-import { findPresetByRootName } from '@/lib/presets';
 import type { TreeNode } from '@/lib/types';
+import { FolderAppearance } from '@/components/ui/folder-appearance';
+import { resolveFolderAppearance } from '@/lib/folder-theme';
 
 interface RootFolderMapProps {
   roots: TreeNode[];
@@ -75,10 +76,10 @@ export function RootFolderMap({
         ) : (
           <div className="mt-8 grid gap-4 sm:grid-cols-2">
             {roots.map((root) => {
-              const preset = findPresetByRootName(root.name);
               const childFolders = root.children.filter((c) => c.type === 'FOLDER');
               const totalNodes = countDescendants(root);
               const isActive = root.id === activeRootId;
+              const appearance = resolveFolderAppearance(root.iconKey, root.color);
 
               return (
                 <button
@@ -94,14 +95,18 @@ export function RootFolderMap({
                   )}
                 >
                   <div className="flex items-start gap-3">
-                    <span className="text-3xl leading-none">
-                      {preset?.emoji ?? (
-                        <Folder
-                          size={28}
-                          className="text-[var(--color-accent)]"
-                        />
+                    <div
+                      className={cn(
+                        'flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border',
+                        appearance.theme.containerClassName,
                       )}
-                    </span>
+                    >
+                      <FolderAppearance
+                        iconKey={root.iconKey}
+                        color={root.color}
+                        size={24}
+                      />
+                    </div>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-lg font-medium">{root.name}</p>
                       <p className="mt-1 text-xs text-[var(--color-muted)]">
